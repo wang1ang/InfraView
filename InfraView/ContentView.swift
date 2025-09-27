@@ -9,53 +9,64 @@ import UniformTypeIdentifiers
 import AppKit
 
 // MARK: - Model
+// MARK: - Model
 final class ImageStore: ObservableObject {
     @Published var imageURLs: [URL] = []
     @Published var selection: Int? = nil
 
     func load(urls: [URL]) {
-        var collected: [URL] = []
         let fm = FileManager.default
         let exts: Set<String> = ["png","jpg","jpeg","gif","tiff","bmp","heic","webp"]
+        var collected: [URL] = []
+        var urlsToProcess = urls
+        var initialSelectionURL: URL? = nil
 
         if urls.count == 1, let first = urls.first {
             let access = first.startAccessingSecurityScopedResource()
             defer { if access { first.stopAccessingSecurityScopedResource() } }
+
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: first.path, isDirectory: &isDir), !isDir.boolValue {
-                let dir = first.deletingLastPathComponent()
-                let dirAccess = dir.startAccessingSecurityScopedResource()
-                defer { if dirAccess { dir.stopAccessingSecurityScopedResource() } }
-                if let e = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
-                    for case let f as URL in e {
-                        if exts.contains(f.pathExtension.lowercased()) { collected.append(f) }
-                    }
-                }
-                if collected.isEmpty { imageURLs = [first]; selection = 0 } else {
-                    collected.sort { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-                    imageURLs = collected
-                    selection = imageURLs.firstIndex(of: first) ?? 0
-                }
-                return
+                urlsToProcess = [first.deletingLastPathComponent()]
+                initialSelectionURL = first
             }
         }
-        func collect(from url: URL) {
+        
+        for url in urlsToProcess {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
+
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                if let e = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
-                    for case let f as URL in e {
-                        if exts.contains(f.pathExtension.lowercased()) { collected.append(f) }
+                // --- [修正] 从这里开始修改 ---
+                do {
+                    // 使用 contentsOfDirectory 进行浅层遍历，不再进入子文件夹
+                    let files = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+                    
+                    for fileURL in files {
+                        // 增加一个判断，确保我们只处理文件，而不是子文件夹
+                        let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                        if resourceValues?.isRegularFile == true && exts.contains(fileURL.pathExtension.lowercased()) {
+                            collected.append(fileURL)
+                        }
                     }
+                } catch {
+                    print("Could not read contents of directory: \(url.path), error: \(error)")
                 }
+                // --- [修正] 修改结束 ---
             } else if exts.contains(url.pathExtension.lowercased()) {
                 collected.append(url)
             }
         }
-        urls.forEach { collect(from: $0) }
-        imageURLs = collected.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        selection = imageURLs.isEmpty ? nil : 0
+        
+        let uniqueURLs = Array(Set(collected))
+        imageURLs = uniqueURLs.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        
+        if let url = initialSelectionURL, let index = imageURLs.firstIndex(of: url) {
+            selection = index
+        } else {
+            selection = imageURLs.isEmpty ? nil : 0
+        }
     }
 
     func delete(at index: Int) throws {
@@ -71,31 +82,30 @@ final class ImageStore: ObservableObject {
 struct ContentView: View {
     @StateObject private var store = ImageStore()
     @State private var zoom: CGFloat = 1
-    @State private var fitToScreen: Bool = false // default 100%
+    @State private var fitToScreen: Bool = false
     @State private var showImporter = false
     @State private var scalePercent: Int = 100
     private let zoomPresets: [CGFloat] = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
+    
+    @State private var windowWidth: CGFloat = 800
 
     var body: some View {
-        Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen) { p in
-            scalePercent = p
+        GeometryReader { geometry in
+            Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen) { p in
+                scalePercent = p
+            }
+            .onAppear {
+                windowWidth = geometry.size.width
+            }
+            .onChange(of: geometry.size.width) { _, newWidth in
+                windowWidth = newWidth
+            }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .automatic) {
-                Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
-                Toggle(isOn: $fitToScreen) { Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
-                    .toggleStyle(.button)
-                HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $zoom, in: 0.25...4); Image(systemName: "plus.magnifyingglass") }
-                Menu(content: {
-                    Button("Fit") { fitToScreen = true }
-                    Divider()
-                    ForEach(zoomPresets, id: \.self) { z in
-                        Button("\(Int(z * 100))%") { fitToScreen = false; zoom = z }
-                    }
-                }, label: { Text("\(scalePercent)%") })
-                Button { previous() } label: { Label("Prev", systemImage: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
-                Button { next() } label: { Label("Next", systemImage: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
-                Button { deleteCurrent() } label: { Label("Delete", systemImage: "trash") }.keyboardShortcut(.delete, modifiers: [])
+            if windowWidth > 750 {
+                fullToolbar
+            } else {
+                compactToolbar
             }
         }
         .fileImporter(
@@ -105,11 +115,54 @@ struct ContentView: View {
         ) { result in
             if case .success(let urls) = result {
                 store.load(urls: urls)
-                if store.selection == nil, !store.imageURLs.isEmpty { store.selection = 0 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
+    }
+    
+    var fullToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .automatic) {
+            Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
+            Toggle(isOn: $fitToScreen) { Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
+                .toggleStyle(.button)
+            HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $zoom, in: 0.25...4); Image(systemName: "plus.magnifyingglass") }
+                .frame(minWidth: 150)
+            Menu(content: {
+                zoomMenuContent
+            }, label: { Text("\(scalePercent)%") })
+            
+            Button { previous() } label: { Label("Prev", systemImage: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
+            Button { next() } label: { Label("Next", systemImage: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
+            Button { deleteCurrent() } label: { Label("Delete", systemImage: "trash") }.keyboardShortcut(.delete, modifiers: [])
+        }
+    }
+    
+    var compactToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .automatic) {
+            Button { showImporter = true } label: { Image(systemName: "folder") }
+            Toggle(isOn: $fitToScreen) { Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
+                .toggleStyle(.button)
+
+            Menu(content: {
+                Slider(value: $zoom, in: 0.25...4)
+                Divider()
+                zoomMenuContent
+            }, label: { Text("\(scalePercent)%") })
+            
+            Button { previous() } label: { Image(systemName: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
+            Button { next() } label: { Image(systemName: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
+            Button { deleteCurrent() } label: { Image(systemName: "trash") }.keyboardShortcut(.delete, modifiers: [])
+        }
+    }
+
+    @ViewBuilder
+    var zoomMenuContent: some View {
+        Button("Fit") { fitToScreen = true }
+        Divider()
+        ForEach(zoomPresets, id: \.self) { z in
+            Button("\(Int(z * 100))%") { fitToScreen = false; zoom = z }
+        }
     }
 
     private func next() {
@@ -136,16 +189,16 @@ struct Viewer: View {
     @Binding var fitToScreen: Bool
     var onScaleChanged: (Int) -> Void
 
+    @State private var currentImage: NSImage? = nil
+
     var body: some View {
         if let index = store.selection, index < store.imageURLs.count {
             let url = store.imageURLs[index]
             ZStack {
                 Color(NSColor.windowBackgroundColor).ignoresSafeArea()
-                if let img = loadImage(url: url) {
+                if let img = currentImage {
                     ZoomableImage(image: img, zoom: $zoom, fitToScreen: $fitToScreen, onScaleChanged: onScaleChanged)
                         .id(url)
-                        .onAppear { resetForNewImage(img) }
-                        .onChange(of: store.selection) { _, _ in resetForNewImage(img) }
                         .onChange(of: fitToScreen) { _, newValue in
                             let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
                             resizeWindowToContentSize(size)
@@ -158,8 +211,23 @@ struct Viewer: View {
                     Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: url.lastPathComponent)
                 }
             }
+            .onAppear(perform: loadImageForSelection)
+            .onChange(of: store.selection) { _, _ in loadImageForSelection() }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
+        }
+    }
+
+    private func loadImageForSelection() {
+        guard let index = store.selection, index < store.imageURLs.count else {
+            currentImage = nil
+            return
+        }
+        let url = store.imageURLs[index]
+        self.currentImage = loadImage(url: url)
+        
+        if let img = self.currentImage {
+            resetForNewImage(img)
         }
     }
 
@@ -257,7 +325,6 @@ private func naturalPointSize(_ img: NSImage) -> CGSize {
     return CGSize(width: px.width / sf, height: px.height / sf)
 }
 
-/// Scrollbar thickness for legacy (non-overlay) style; overlay bars take no space.
 private func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFloat) {
     if NSScroller.preferredScrollerStyle == .overlay { return (0, 0) }
     let t = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
@@ -283,7 +350,6 @@ private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
 
-// Screen-based one-pass prediction: only if desired content exceeds visibleFrame, pre-reserve scrollbar thickness once
 private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     guard let window = NSApp.keyWindow else { return }
     let minW: CGFloat = 360, minH: CGFloat = 280
@@ -298,7 +364,6 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
 
     let (vBar, hBar) = legacyScrollbarThickness()
 
-    // Pre-reserve only when the desired content would overflow the screen-visible area
     var needV = desiredH > availH0
     var needH = desiredW > availW0
     if needV || needH {
