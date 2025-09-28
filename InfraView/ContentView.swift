@@ -1,14 +1,14 @@
-// InfraView - Stable version (macOS, single-file, no sidebar)
+// InfraView - Enhanced version (macOS, single-file, no sidebar)
 // Features: open images/folders, ←/→ browse same folder, Delete to trash,
 // default 100% per image, slider + preset zoom with live percent,
-// precise window auto-sizing with scrollbar-aware, screen-based one-pass prediction.
+// precise window auto-sizing with scrollbar-aware, screen-based one-pass prediction,
+// enhanced error handling and image preloading for better performance.
 
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 import AppKit
 
-// MARK: - Model
 // MARK: - Model
 final class ImageStore: ObservableObject {
     @Published var imageURLs: [URL] = []
@@ -38,7 +38,6 @@ final class ImageStore: ObservableObject {
 
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                // --- [修正] 从这里开始修改 ---
                 do {
                     // 使用 contentsOfDirectory 进行浅层遍历，不再进入子文件夹
                     let files = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
@@ -53,7 +52,6 @@ final class ImageStore: ObservableObject {
                 } catch {
                     print("Could not read contents of directory: \(url.path), error: \(error)")
                 }
-                // --- [修正] 修改结束 ---
             } else if exts.contains(url.pathExtension.lowercased()) {
                 collected.append(url)
             }
@@ -190,13 +188,28 @@ struct Viewer: View {
     var onScaleChanged: (Int) -> Void
 
     @State private var currentImage: NSImage? = nil
+    @State private var loadingError: String? = nil
+    @State private var isLoading: Bool = false
+    @State private var preloadedImages: [URL: NSImage] = [:]
 
     var body: some View {
         if let index = store.selection, index < store.imageURLs.count {
             let url = store.imageURLs[index]
             ZStack {
                 Color(NSColor.windowBackgroundColor).ignoresSafeArea()
-                if let img = currentImage {
+                
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                            .scaleEffect(1.2)
+                        Text("Loading...")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    }
+                } else if let error = loadingError {
+                    Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: error)
+                } else if let img = currentImage {
                     ZoomableImage(image: img, zoom: $zoom, fitToScreen: $fitToScreen, onScaleChanged: onScaleChanged)
                         .id(url)
                         .onChange(of: fitToScreen) { _, newValue in
@@ -208,11 +221,14 @@ struct Viewer: View {
                         }
                         .navigationTitle(url.lastPathComponent)
                 } else {
-                    Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: url.lastPathComponent)
+                    Placeholder(title: "No image", systemName: "photo", text: url.lastPathComponent)
                 }
             }
             .onAppear(perform: loadImageForSelection)
-            .onChange(of: store.selection) { _, _ in loadImageForSelection() }
+            .onChange(of: store.selection) { _, _ in
+                loadImageForSelection()
+                preloadAdjacentImages()
+            }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
         }
@@ -221,13 +237,72 @@ struct Viewer: View {
     private func loadImageForSelection() {
         guard let index = store.selection, index < store.imageURLs.count else {
             currentImage = nil
+            loadingError = nil
             return
         }
-        let url = store.imageURLs[index]
-        self.currentImage = loadImage(url: url)
         
-        if let img = self.currentImage {
-            resetForNewImage(img)
+        let url = store.imageURLs[index]
+        
+        // 检查预加载缓存
+        if let preloadedImage = preloadedImages[url] {
+            currentImage = preloadedImage
+            loadingError = nil
+            isLoading = false
+            resetForNewImage(preloadedImage)
+            return
+        }
+        
+        isLoading = true
+        loadingError = nil
+        currentImage = nil
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (image, error) = loadImageWithError(url: url)
+            
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.currentImage = image
+                self.loadingError = error
+                
+                if let img = image {
+                    resetForNewImage(img)
+                    // 将成功加载的图片加入预加载缓存
+                    preloadedImages[url] = img
+                }
+            }
+        }
+    }
+    
+    private func preloadAdjacentImages() {
+        guard let current = store.selection, !store.imageURLs.isEmpty else { return }
+        let urls = store.imageURLs
+        
+        DispatchQueue.global(qos: .background).async {
+            // 预加载前一张和后一张
+            let indicesToPreload = [
+                (current - 1 + urls.count) % urls.count,
+                (current + 1) % urls.count
+            ]
+            
+            for index in indicesToPreload {
+                let url = urls[index]
+                if preloadedImages[url] == nil {
+                    let (image, _) = loadImageWithError(url: url)
+                    if let image = image {
+                        DispatchQueue.main.async {
+                            // 限制缓存大小，避免内存占用过多
+                            if preloadedImages.count > 5 {
+                                // 移除一些较早的缓存项
+                                let urlsToRemove = Array(preloadedImages.keys.prefix(2))
+                                for urlToRemove in urlsToRemove {
+                                    preloadedImages.removeValue(forKey: urlToRemove)
+                                }
+                            }
+                            preloadedImages[url] = image
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -288,12 +363,36 @@ struct ZoomableImage: View {
 }
 
 // MARK: - Helpers
-private func loadImage(url: URL) -> NSImage? {
+private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let access = url.startAccessingSecurityScopedResource()
     defer { if access { url.stopAccessingSecurityScopedResource() } }
-    if let img = NSImage(contentsOf: url) { return img }
-    if let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) { return NSImage(data: data) }
-    return nil
+    
+    // 首先检查文件是否存在
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        return (nil, "文件不存在")
+    }
+    
+    // 检查文件是否可读
+    guard FileManager.default.isReadableFile(atPath: url.path) else {
+        return (nil, "文件无法读取")
+    }
+    
+    // 尝试直接从 URL 加载
+    if let img = NSImage(contentsOf: url) {
+        return (img, nil)
+    }
+    
+    // 尝试从数据加载
+    do {
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        if let img = NSImage(data: data) {
+            return (img, nil)
+        } else {
+            return (nil, "不支持的图片格式")
+        }
+    } catch {
+        return (nil, "读取文件失败: \(error.localizedDescription)")
+    }
 }
 
 private func displayScaleFactor() -> CGFloat {
