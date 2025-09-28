@@ -237,21 +237,28 @@ struct Viewer: View {
                             guard needScroll else { return }
                             switch fitMode {
                             case .fitOnlyBigToDesktop, .fitImageToWindow, .fitWindowToImage:
-                                resizeWindowToContentSize(contentSize)
+                                //resizeWindowToContentSize(contentSize)
+                                break
                             case .fitOnlyBigToWindow, .doNotFit:
                                 break
                             }
                         }
                     )
                     .id(url)
+                    /*
                     .onChange(of: fitToScreen) { _, newValue in
                         let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
-                        if fitMode == .fitWindowToImage && !newValue { resizeWindowToContentSize(size) }
-                        else if fitMode == .fitOnlyBigToDesktop && newValue { resizeWindowToContentSize(size) }
+                        if fitMode == .fitWindowToImage && !newValue { //resizeWindowToContentSize(size)
+                        }
+                        else if fitMode == .fitOnlyBigToDesktop && newValue { //resizeWindowToContentSize(size)
+                        }
+                    }*/
+                    .onChange(of: fitToScreen) { _, _ in
+                        if let img = currentImage { resizeOnceForCurrentFit(img) }
                     }
                     .onChange(of: zoom) { _, newZoom in
                         if !fitToScreen && fitMode == .fitWindowToImage {
-                            resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom))
+                            //resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom))
                         }
                     }
                     .navigationTitle(url.lastPathComponent)
@@ -261,7 +268,10 @@ struct Viewer: View {
             }
             .onAppear(perform: loadImageForSelection)
             .onChange(of: store.selection) { _, _ in loadImageForSelection(); preloadAdjacentImages() }
-            .onChange(of: fitMode) { _, _ in if let img = currentImage { resetForNewImage(img) } }
+            .onChange(of: fitMode) { _, _ in if let img = currentImage {
+                //resetForNewImage(img)
+                resizeOnceForCurrentFit(img)
+            } }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
         }
@@ -279,7 +289,7 @@ struct Viewer: View {
             let (image, error) = loadImageWithError(url: url)
             DispatchQueue.main.async {
                 self.isLoading = false; self.currentImage = image; self.loadingError = error
-                if let img = image { resetForNewImage(img); preloadedImages[url] = img }
+                if let img = image { resetForNewImage(img); preloadedImages[url] = img; resizeOnceForCurrentFit(img) }
             }
         }
     }
@@ -310,7 +320,7 @@ struct Viewer: View {
         let naturalSize = naturalPointSize(img)
         switch fitMode {
         case .fitWindowToImage:
-            fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize)
+            fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
         case .fitImageToWindow:
             fitToScreen = true; zoom = 1
         case .fitOnlyBigToWindow:
@@ -319,7 +329,8 @@ struct Viewer: View {
             let maxW = max(vf.width - padding, 200)
             let maxH = max(vf.height - padding, 200)
             if naturalSize.width > maxW || naturalSize.height > maxH { fitToScreen = true; zoom = 1 }
-            else { fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize) }
+            else { fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
+            }
         case .fitOnlyBigToDesktop:
             let screenFrame = NSScreen.main?.frame ?? .zero
             let padding: CGFloat = 50
@@ -343,10 +354,48 @@ struct Viewer: View {
         let maxH = max(vf.height - padding, 200)
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
         onScaleChanged(Int(round(scale * 100)))
+        resizeOnceForCurrentFit(img)
+    }
+    private func targetSize(for img: NSImage) -> CGSize {
+        if fitToScreen {
+            return fittedContentSize(for: img)
+        } else {
+            switch fitMode {
+            case .fitWindowToImage:
+                // 自由缩放时，用当前 zoom 的内容尺寸
+                return scaledContentSize(for: img, scale: zoom)
+            case .fitImageToWindow:
+                return fittedContentSize(for: img)
+            case .fitOnlyBigToWindow:
+                let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+                let padding: CGFloat = 100
+                let maxW = max(vf.width - padding, 200)
+                let maxH = max(vf.height - padding, 200)
+                let natural = naturalPointSize(img)
+                return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
+            case .fitOnlyBigToDesktop:
+                let screenFrame = NSApp.keyWindow?.screen?.frame ?? .zero
+                let padding: CGFloat = 50
+                let maxW = max(screenFrame.width - padding, 200)
+                let maxH = max(screenFrame.height - padding, 200)
+                let natural = naturalPointSize(img)
+                return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
+            case .doNotFit:
+                return scaledContentSize(for: img, scale: zoom)
+            }
+        }
+    }
+
+    private func resizeOnceForCurrentFit(_ img: NSImage) {
+        resizeWindowToContentSize(targetSize(for: img))
     }
 }
 
 // MARK: - ZoomableImage
+@inline(__always)
+private func isAnimated(_ img: NSImage) -> Bool {
+    img.representations.contains { ($0 as? NSBitmapImageRep)?.value(forProperty: .frameCount) as? Int ?? 0 > 1 }
+}
 
 struct ZoomableImage: View {
     let image: NSImage
@@ -376,17 +425,27 @@ struct ZoomableImage: View {
             let view = Group {
                 if needScroll {
                     ScrollView([.horizontal, .vertical]) {
+                        if isAnimated(image){
+                            AnimatedImageView(image: image)
+                                .frame(width: contentW, height: contentH)
+                        } else {
+                            Image(nsImage: image)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: contentW, height: contentH)
+                        }
+                    }
+                } else {
+                    if isAnimated(image) {
+                        AnimatedImageView(image: image)
+                            .frame(width: contentW, height: contentH)
+                    } else {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
                             .frame(width: contentW, height: contentH)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else {
-                    Image(nsImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: contentW, height: contentH)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100))) }
@@ -407,7 +466,25 @@ struct ZoomableImage: View {
     }
 }
 
+struct AnimatedImageView: NSViewRepresentable {
+    let image: NSImage
+    func makeNSView(context: Context) -> NSImageView {
+        let v = NSImageView()
+        v.imageScaling = .scaleNone
+        v.animates = true
+        v.image = image
+        return v
+    }
+    func updateNSView(_ v: NSImageView, context: Context) {
+        v.image = image
+        v.animates = true
+    }
+}
+
 // MARK: - Helpers
+private func windowVisibleFrame() -> CGRect {
+    (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+}
 
 private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
     let fitScale = min(maxW / baseW, maxH / baseH)
@@ -469,7 +546,7 @@ private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     let maxH = max(vf.height - padding, 200)
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
-
+/*
 private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     guard let window = NSApp.keyWindow else { return }
 
@@ -526,6 +603,69 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     targetFrame.origin.y = currentTop - targetFrame.height
 
     // 屏幕边界约束
+    if let screen = window.screen {
+        let vf2 = screen.visibleFrame
+        if targetFrame.width  > vf2.width  { targetFrame.size.width  = vf2.width }
+        if targetFrame.height > vf2.height { targetFrame.size.height = vf2.height }
+        targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
+        targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
+    }
+
+    window.setFrame(targetFrame, display: true, animate: false)
+}
+*/
+private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
+    guard let window = NSApp.keyWindow else { return }
+
+    // ✅ 关键补丁：先确保窗口不是 zoomed / fullScreen
+    if window.styleMask.contains(.fullScreen) { return }      // 全屏下不处理
+    if window.isZoomed { window.zoom(nil) }                   // 退出“标准缩放”状态
+
+    let minW: CGFloat = 360, minH: CGFloat = 280
+    var layoutW = max(ceil(desiredContentSize.width),  minW)
+    var layoutH = max(ceil(desiredContentSize.height), minH)
+
+    let currentFrame = window.frame
+    let currentContentRect = window.contentRect(forFrameRect: currentFrame)
+    let currentLayoutRect = window.contentLayoutRect
+    let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
+    let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
+
+    var contentW = layoutW + layoutExtraW
+    var contentH = layoutH + layoutExtraH + 1
+
+    let (vBar, hBar) = legacyScrollbarThickness()
+    let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+    let padding: CGFloat = 32
+
+    let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
+    let testFrame = window.frameRect(forContentRect: testContentRect)
+    let decoW = testFrame.width  - testContentRect.width
+    let decoH = testFrame.height - testContentRect.height
+    var availW = max(vf.width  - padding - decoW, minW)
+    var availH = max(vf.height - padding - decoH, minH)
+
+    var needV = contentH > availH
+    var needH = contentW > availW
+    for _ in 0..<2 {
+        var nextAvailW = availW
+        var nextAvailH = availH
+        if needV { nextAvailW -= vBar }
+        if needH { nextAvailH -= hBar }
+        let nextNeedV = contentH > nextAvailH
+        let nextNeedH = contentW > nextAvailW
+        if nextNeedV == needV && nextNeedH == needH { break }
+        needV = nextNeedV; needH = nextNeedH
+        availW = nextAvailW; availH = nextAvailH
+    }
+    if needV { contentW += vBar }
+    if needH { contentH += hBar }
+
+    var targetFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH))
+    let currentTop = window.frame.maxY
+    targetFrame.origin.x = window.frame.origin.x
+    targetFrame.origin.y = currentTop - targetFrame.height
+
     if let screen = window.screen {
         let vf2 = screen.visibleFrame
         if targetFrame.width  > vf2.width  { targetFrame.size.width  = vf2.width }
