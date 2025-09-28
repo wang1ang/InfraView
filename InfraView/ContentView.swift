@@ -10,6 +10,16 @@ import UniformTypeIdentifiers
 import AppKit
 
 // MARK: - Model
+
+// 缩放模式枚举
+enum FitMode: String, CaseIterable {
+    case fitWindowToImage = "Fit window to image"
+    case fitImageToWindow = "Fit image to window"
+    case fitOnlyBigToWindow = "Fit only big images to window"
+    case fitOnlyBigToDesktop = "Fit only big images to desktop"
+    case doNotFit = "Do not fit anything"
+}
+
 final class ImageStore: ObservableObject {
     @Published var imageURLs: [URL] = []
     @Published var selection: Int? = nil
@@ -83,13 +93,14 @@ struct ContentView: View {
     @State private var fitToScreen: Bool = false
     @State private var showImporter = false
     @State private var scalePercent: Int = 100
+    @State private var fitMode: FitMode = .fitWindowToImage
     private let zoomPresets: [CGFloat] = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
     
     @State private var windowWidth: CGFloat = 800
 
     var body: some View {
         GeometryReader { geometry in
-            Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen) { p in
+            Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen, fitMode: fitMode) { p in
                 scalePercent = p
             }
             .onAppear {
@@ -122,8 +133,27 @@ struct ContentView: View {
     var fullToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
-            Toggle(isOn: $fitToScreen) { Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
-                .toggleStyle(.button)
+            
+            Menu {
+                ForEach(FitMode.allCases, id: \.self) { mode in
+                    Button(action: {
+                        fitMode = mode
+                    }) {
+                        HStack {
+                            Text(mode.rawValue)
+                            Spacer()
+                            if fitMode == mode {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Toggle(isOn: $fitToScreen) { Text("Manual Fit Toggle") }
+            } label: {
+                Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+            }
+            
             HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $zoom, in: 0.25...4); Image(systemName: "plus.magnifyingglass") }
                 .frame(minWidth: 150)
             Menu(content: {
@@ -139,8 +169,26 @@ struct ContentView: View {
     var compactToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Image(systemName: "folder") }
-            Toggle(isOn: $fitToScreen) { Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
-                .toggleStyle(.button)
+            
+            Menu {
+                ForEach(FitMode.allCases, id: \.self) { mode in
+                    Button(action: {
+                        fitMode = mode
+                    }) {
+                        HStack {
+                            Text(mode.rawValue)
+                            Spacer()
+                            if fitMode == mode {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Toggle(isOn: $fitToScreen) { Text("Manual Fit Toggle") }
+            } label: {
+                Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+            }
 
             Menu(content: {
                 Slider(value: $zoom, in: 0.25...4)
@@ -185,6 +233,7 @@ struct Viewer: View {
     @ObservedObject var store: ImageStore
     @Binding var zoom: CGFloat
     @Binding var fitToScreen: Bool
+    let fitMode: FitMode
     var onScaleChanged: (Int) -> Void
 
     @State private var currentImage: NSImage? = nil
@@ -210,14 +259,18 @@ struct Viewer: View {
                 } else if let error = loadingError {
                     Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: error)
                 } else if let img = currentImage {
-                    ZoomableImage(image: img, zoom: $zoom, fitToScreen: $fitToScreen, onScaleChanged: onScaleChanged)
+                    ZoomableImage(image: img, zoom: $zoom, fitToScreen: $fitToScreen, fitMode: fitMode, onScaleChanged: onScaleChanged)
                         .id(url)
                         .onChange(of: fitToScreen) { _, newValue in
                             let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
-                            resizeWindowToContentSize(size)
+                            if fitMode == .fitWindowToImage && !newValue {
+                                resizeWindowToContentSize(size)
+                            }
                         }
                         .onChange(of: zoom) { _, newZoom in
-                            if !fitToScreen { resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom)) }
+                            if !fitToScreen && fitMode == .fitWindowToImage {
+                                resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom))
+                            }
                         }
                         .navigationTitle(url.lastPathComponent)
                 } else {
@@ -228,6 +281,12 @@ struct Viewer: View {
             .onChange(of: store.selection) { _, _ in
                 loadImageForSelection()
                 preloadAdjacentImages()
+            }
+            .onChange(of: fitMode) { _, _ in
+                // 当 fitMode 改变时，重新应用到当前图片
+                if let img = currentImage {
+                    resetForNewImage(img)
+                }
             }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
@@ -307,10 +366,68 @@ struct Viewer: View {
     }
 
     private func resetForNewImage(_ img: NSImage) {
-        fitToScreen = false
-        zoom = 1
-        onScaleChanged(100)
-        resizeWindowToContentSize(naturalPointSize(img))
+        let naturalSize = naturalPointSize(img)
+        
+        // 根据不同的 fitMode 设置初始状态
+        switch fitMode {
+        case .fitWindowToImage:
+            fitToScreen = false
+            zoom = 1
+            resizeWindowToContentSize(naturalSize)
+            
+        case .fitImageToWindow:
+            fitToScreen = true
+            zoom = 1
+            // 不调整窗口大小，让图片适应当前窗口
+            
+        case .fitOnlyBigToWindow:
+            let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+            let padding: CGFloat = 100
+            let maxW = max(vf.width - padding, 200)
+            let maxH = max(vf.height - padding, 200)
+            
+            if naturalSize.width > maxW || naturalSize.height > maxH {
+                fitToScreen = true
+                zoom = 1
+            } else {
+                fitToScreen = false
+                zoom = 1
+                resizeWindowToContentSize(naturalSize)
+            }
+            
+        case .fitOnlyBigToDesktop:
+            let screenFrame = NSScreen.main?.frame ?? .zero
+            let padding: CGFloat = 50
+            let maxW = max(screenFrame.width - padding, 200)
+            let maxH = max(screenFrame.height - padding, 200)
+            
+            if naturalSize.width > maxW || naturalSize.height > maxH {
+                fitToScreen = true
+                zoom = 1
+            } else {
+                fitToScreen = false
+                zoom = 1
+                resizeWindowToContentSize(naturalSize)
+            }
+            
+        case .doNotFit:
+            fitToScreen = false
+            zoom = 1
+            // 不调整窗口大小，保持当前窗口尺寸
+        }
+        
+        // 更新缩放百分比显示
+        if fitToScreen {
+            // 计算适配后的实际缩放比例
+            let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+            let padding: CGFloat = 32
+            let maxW = max(vf.width - padding, 200)
+            let maxH = max(vf.height - padding, 200)
+            let fitScale = min(maxW / max(naturalSize.width, 1), maxH / max(naturalSize.height, 1))
+            onScaleChanged(Int(round(fitScale * 100)))
+        } else {
+            onScaleChanged(Int(round(zoom * 100)))
+        }
     }
 }
 
@@ -319,6 +436,7 @@ struct ZoomableImage: View {
     let image: NSImage
     @Binding var zoom: CGFloat
     @Binding var fitToScreen: Bool
+    let fitMode: FitMode
     var onScaleChanged: (Int) -> Void
 
     var body: some View {
@@ -458,8 +576,16 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
 
     let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
     let padding: CGFloat = 32
-    let availW0 = max(vf.width - padding, minW)
-    let availH0 = max(vf.height - padding, minH)
+    
+    // 计算窗口装饰（标题栏、工具栏等）占用的高度
+    let testContentRect = NSRect(origin: .zero, size: NSSize(width: 100, height: 100))
+    let testWindowFrame = window.frameRect(forContentRect: testContentRect)
+    let windowDecorationHeight = testWindowFrame.size.height - testContentRect.size.height
+    let windowDecorationWidth = testWindowFrame.size.width - testContentRect.size.width
+    
+    // 从可用空间中减去窗口装饰的尺寸
+    let availW0 = max(vf.width - padding - windowDecorationWidth, minW)
+    let availH0 = max(vf.height - padding - windowDecorationHeight, minH)
 
     let (vBar, hBar) = legacyScrollbarThickness()
 
