@@ -53,7 +53,7 @@ final class ImageStore: ObservableObject {
                     let files = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
                     
                     for fileURL in files {
-                        // 增加一个判断，确保我们只处理文件，而不是子文件夹
+                        // 确保只处理文件，而不是子文件夹
                         let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
                         if resourceValues?.isRegularFile == true && exts.contains(fileURL.pathExtension.lowercased()) {
                             collected.append(fileURL)
@@ -67,8 +67,13 @@ final class ImageStore: ObservableObject {
             }
         }
         
+        // 去重 + 稳定排序（同名时按完整路径）
         let uniqueURLs = Array(Set(collected))
-        imageURLs = uniqueURLs.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        imageURLs = uniqueURLs.sorted { lhs, rhs in
+            let n = lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent)
+            if n != .orderedSame { return n == .orderedAscending }
+            return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
+        }
         
         if let url = initialSelectionURL, let index = imageURLs.firstIndex(of: url) {
             selection = index
@@ -119,7 +124,7 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.image, .png, .jpeg, .tiff, .gif, .bmp, .heic, .webP, .folder],
+            allowedContentTypes: [.image, .png, .jpeg, .tiff, .gif, .bmp, .heic, .webPCompat, .folder],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
@@ -133,6 +138,7 @@ struct ContentView: View {
     var fullToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
+                .keyboardShortcut("o", modifiers: [.command])
             
             Menu {
                 ForEach(FitMode.allCases, id: \.self) { mode in
@@ -154,8 +160,19 @@ struct ContentView: View {
                 Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
             }
             
-            HStack { Image(systemName: "minus.magnifyingglass"); Slider(value: $zoom, in: 0.25...4); Image(systemName: "plus.magnifyingglass") }
-                .frame(minWidth: 150)
+            HStack {
+                Image(systemName: "minus.magnifyingglass")
+                Slider(
+                    value: Binding(get: { zoom }, set: { newV in
+                        // 用户手动调节即退出适配
+                        fitToScreen = false
+                        zoom = newV
+                    }),
+                    in: 0.25...4
+                )
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .frame(minWidth: 150)
             Menu(content: {
                 zoomMenuContent
             }, label: { Text("\(scalePercent)%") })
@@ -169,6 +186,7 @@ struct ContentView: View {
     var compactToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Image(systemName: "folder") }
+                .keyboardShortcut("o", modifiers: [.command])
             
             Menu {
                 ForEach(FitMode.allCases, id: \.self) { mode in
@@ -191,7 +209,13 @@ struct ContentView: View {
             }
 
             Menu(content: {
-                Slider(value: $zoom, in: 0.25...4)
+                Slider(
+                    value: Binding(get: { zoom }, set: { newV in
+                        fitToScreen = false
+                        zoom = newV
+                    }),
+                    in: 0.25...4
+                )
                 Divider()
                 zoomMenuContent
             }, label: { Text("\(scalePercent)%") })
@@ -223,12 +247,18 @@ struct ContentView: View {
         guard let idx = store.selection, !store.imageURLs.isEmpty else { return }
         do {
             try store.delete(at: idx)
-            if store.imageURLs.isEmpty { store.selection = nil } else { store.selection = idx % store.imageURLs.count }
+            if store.imageURLs.isEmpty {
+                store.selection = nil
+            } else {
+                // 更自然：保持当前位置，若删除的是最后一张则选中新的最后一张
+                store.selection = min(idx, store.imageURLs.count - 1)
+            }
         } catch { print("Delete failed:", error) }
     }
 }
 
 // MARK: - Viewer
+@MainActor
 struct Viewer: View {
     @ObservedObject var store: ImageStore
     @Binding var zoom: CGFloat
@@ -302,7 +332,7 @@ struct Viewer: View {
         
         let url = store.imageURLs[index]
         
-        // 检查预加载缓存
+        // 检查预加载缓存（主线程）
         if let preloadedImage = preloadedImages[url] {
             currentImage = preloadedImage
             loadingError = nil
@@ -336,29 +366,25 @@ struct Viewer: View {
         guard let current = store.selection, !store.imageURLs.isEmpty else { return }
         let urls = store.imageURLs
         
-        DispatchQueue.global(qos: .background).async {
-            // 预加载前一张和后一张
-            let indicesToPreload = [
-                (current - 1 + urls.count) % urls.count,
-                (current + 1) % urls.count
-            ]
-            
-            for index in indicesToPreload {
-                let url = urls[index]
-                if preloadedImages[url] == nil {
-                    let (image, _) = loadImageWithError(url: url)
-                    if let image = image {
-                        DispatchQueue.main.async {
-                            // 限制缓存大小，避免内存占用过多
-                            if preloadedImages.count > 5 {
-                                // 移除一些较早的缓存项
-                                let urlsToRemove = Array(preloadedImages.keys.prefix(2))
-                                for urlToRemove in urlsToRemove {
-                                    preloadedImages.removeValue(forKey: urlToRemove)
-                                }
-                            }
-                            preloadedImages[url] = image
+        // 预先在主线程判断是否已有缓存，后台只做解码
+        let indicesToPreload = [
+            (current - 1 + urls.count) % urls.count,
+            (current + 1) % urls.count
+        ]
+        
+        for index in indicesToPreload {
+            let url = urls[index]
+            if preloadedImages[url] != nil { continue }
+            DispatchQueue.global(qos: .background).async {
+                let (image, _) = loadImageWithError(url: url)
+                if let image {
+                    DispatchQueue.main.async {
+                        // 限制缓存大小，避免内存占用过多（简单 FIFO）
+                        if preloadedImages.count > 5 {
+                            if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
+                            if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
                         }
+                        preloadedImages[url] = image
                     }
                 }
             }
@@ -416,18 +442,13 @@ struct Viewer: View {
             // 不调整窗口大小，保持当前窗口尺寸
         }
         
-        // 更新缩放百分比显示
-        if fitToScreen {
-            // 计算适配后的实际缩放比例
-            let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-            let padding: CGFloat = 32
-            let maxW = max(vf.width - padding, 200)
-            let maxH = max(vf.height - padding, 200)
-            let fitScale = min(maxW / max(naturalSize.width, 1), maxH / max(naturalSize.height, 1))
-            onScaleChanged(Int(round(fitScale * 100)))
-        } else {
-            onScaleChanged(Int(round(zoom * 100)))
-        }
+        // 更新缩放百分比显示（用统一计算）
+        let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+        let padding: CGFloat = 32
+        let maxW = max(vf.width - padding, 200)
+        let maxH = max(vf.height - padding, 200)
+        let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
+        onScaleChanged(Int(round(scale * 100)))
     }
 }
 
@@ -438,6 +459,8 @@ struct ZoomableImage: View {
     @Binding var fitToScreen: Bool
     let fitMode: FitMode
     var onScaleChanged: (Int) -> Void
+
+    @State private var baseZoom: CGFloat = 1
 
     var body: some View {
         let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
@@ -455,7 +478,7 @@ struct ZoomableImage: View {
         let contentH = baseH * currentScale
         let needScroll = (contentW > maxW) || (contentH > maxH)
 
-        Group {
+        let contentView: some View = Group {
             if needScroll {
                 ScrollView([.horizontal, .vertical]) {
                     Image(nsImage: image)
@@ -463,10 +486,6 @@ struct ZoomableImage: View {
                         .interpolation(.high)
                         .frame(width: contentW, height: contentH)
                 }
-                .gesture(MagnificationGesture().onChanged { v in
-                    fitToScreen = false
-                    zoom = clamp(zoom * v, 0.25...4)
-                })
             } else {
                 Image(nsImage: image)
                     .resizable()
@@ -474,10 +493,37 @@ struct ZoomableImage: View {
                     .frame(width: contentW, height: contentH)
             }
         }
-        .onAppear { onScaleChanged(Int(round(currentScale * 100))) }
-        .onChange(of: fitToScreen) { _, _ in onScaleChanged(Int(round(currentScale * 100))) }
-        .onChange(of: zoom) { _, _ in if !fitToScreen { onScaleChanged(Int(round(zoom * 100))) } }
+        .onAppear {
+            baseZoom = zoom
+            onScaleChanged(Int(round(currentScale * 100)))
+        }
+        .onChange(of: fitToScreen) { _, newFit in
+            let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
+            onScaleChanged(Int(round(cs * 100)))
+        }
+        .onChange(of: zoom) { _, newZoom in
+            if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
+        }
+
+        // 将捏合手势放在外层，保证无论是否需要滚动都能缩放
+        return contentView
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { v in
+                        fitToScreen = false
+                        zoom = clamp(baseZoom * v, 0.25...4)
+                    }
+                    .onEnded { _ in
+                        baseZoom = zoom
+                    }
+            )
     }
+}
+
+// 统一计算当前 scale 的工具函数（避免与局部变量重名）
+private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
+    let fitScale = min(maxW / baseW, maxH / baseH)
+    return isFit ? fitScale : zoom
 }
 
 // MARK: - Helpers
@@ -639,7 +685,13 @@ struct Placeholder: View {
     }
 }
 
-extension UTType { static let webP = UTType(importedAs: "public.webp") }
+// 新系统已有 UTType.webP，这里做兼容命名，避免冲突
+extension UTType {
+    static var webPCompat: UTType {
+        if let t = UTType("public.webp") { return t }
+        return UTType(importedAs: "public.webp")
+    }
+}
 
 extension Notification.Name {
     static let infraNext = Notification.Name("InfraView.Next")
