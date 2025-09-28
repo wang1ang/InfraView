@@ -269,8 +269,8 @@ struct Viewer: View {
             .onAppear(perform: loadImageForSelection)
             .onChange(of: store.selection) { _, _ in loadImageForSelection(); preloadAdjacentImages() }
             .onChange(of: fitMode) { _, _ in if let img = currentImage {
-                //resetForNewImage(img)
-                resizeOnceForCurrentFit(img)
+                resetForNewImage(img)
+                //resizeOnceForCurrentFit(img)
             } }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
@@ -315,6 +315,51 @@ struct Viewer: View {
             }
         }
     }
+    private func isBigOnThisDesktop(_ img: NSImage) -> Bool {
+        guard let win = NSApp.keyWindow else { return false }
+        let natural = naturalPointSize(img)
+        let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
+        return natural.width > maxLayout.width || natural.height > maxLayout.height
+    }
+    private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
+        guard let win = NSApp.keyWindow else { return fittedContentSize(for: image) } // 兜底
+        let base = naturalPointSize(image)
+        let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
+        let scale = min(maxLayout.width / max(base.width, 1),
+                        maxLayout.height / max(base.height, 1))
+        return CGSize(width: ceil(base.width * scale),
+                      height: ceil(base.height * scale))
+    }
+
+    /// 返回：在当前屏幕的 visibleFrame 内，当前窗口样式下最大的 contentLayoutRect 尺寸
+    private func maxContentLayoutSizeInVisibleFrame(_ window: NSWindow) -> CGSize {
+        // 1) 屏幕的可用矩形（已扣除菜单栏/Dock）
+        let vf = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+
+        // 2) 先求“contentRect 与 frameRect 的装饰差”
+        //    用一个 100x100 的 dummy contentRect 反推出 frameRect，然后取差值
+        let dummyContent = NSRect(x: 0, y: 0, width: 100, height: 100)
+        let dummyFrame   = window.frameRect(forContentRect: dummyContent)
+        let decoW = dummyFrame.width  - dummyContent.width
+        let decoH = dummyFrame.height - dummyContent.height
+
+        // 3) 当前窗口里 contentRect 与 contentLayoutRect 的差（工具栏等“吃掉”的区域）
+        let currentFrame        = window.frame
+        let currentContentRect  = window.contentRect(forFrameRect: currentFrame)
+        let currentLayoutRect   = window.contentLayoutRect
+        let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
+        let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
+
+        // 4) 可容纳的最大 contentRect 尺寸 = visibleFrame 尺寸 - 窗口装饰
+        let maxContentRectW = max(vf.width  - decoW, 0)
+        let maxContentRectH = max(vf.height - decoH, 0)
+
+        // 5) 再扣掉 contentRect → contentLayoutRect 的差，得到“最大 contentLayoutRect 尺寸”
+        let maxLayoutW = max(maxContentRectW - layoutExtraW, 0)
+        let maxLayoutH = max(maxContentRectH - layoutExtraH, 0)
+
+        return CGSize(width: floor(maxLayoutW), height: floor(maxLayoutH))
+    }
 
     private func resetForNewImage(_ img: NSImage) {
         let naturalSize = naturalPointSize(img)
@@ -338,10 +383,11 @@ struct Viewer: View {
             let maxH = max(screenFrame.height - padding, 200)
             if naturalSize.width > maxW || naturalSize.height > maxH {
                 fitToScreen = true; zoom = 1
-                let fitted = fittedContentSize(for: img)
-                resizeWindowToContentSize(fitted)
+                //let fitted = fittedContentSize(for: img)
+                //let fitted = fittedContentSizeAccurate(for: img)
+                //resizeWindowToContentSize(fitted)
             } else {
-                fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize)
+                fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
             }
         case .doNotFit:
             fitToScreen = false; zoom = 1
@@ -358,28 +404,38 @@ struct Viewer: View {
     }
     private func targetSize(for img: NSImage) -> CGSize {
         if fitToScreen {
-            return fittedContentSize(for: img)
+            return fittedContentSizeAccurate(for: img)
         } else {
             switch fitMode {
             case .fitWindowToImage:
                 // 自由缩放时，用当前 zoom 的内容尺寸
                 return scaledContentSize(for: img, scale: zoom)
             case .fitImageToWindow:
-                return fittedContentSize(for: img)
+                return fittedContentSizeAccurate(for: img)
             case .fitOnlyBigToWindow:
+                /*
                 let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
                 let padding: CGFloat = 100
                 let maxW = max(vf.width - padding, 200)
                 let maxH = max(vf.height - padding, 200)
                 let natural = naturalPointSize(img)
                 return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
+                */
+                return isBigOnThisDesktop(img) ? fittedContentSizeAccurate(for: img) : naturalPointSize(img)
             case .fitOnlyBigToDesktop:
+                /*
                 let screenFrame = NSApp.keyWindow?.screen?.frame ?? .zero
                 let padding: CGFloat = 50
                 let maxW = max(screenFrame.width - padding, 200)
                 let maxH = max(screenFrame.height - padding, 200)
                 let natural = naturalPointSize(img)
                 return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
+                */
+                if isBigOnThisDesktop(img) {
+                    return fittedContentSizeAccurate(for: img)
+                } else {
+                    return naturalPointSize(img)
+                }
             case .doNotFit:
                 return scaledContentSize(for: img, scale: zoom)
             }
@@ -531,7 +587,7 @@ private func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFlo
 private func fittedContentSize(for image: NSImage) -> CGSize {
     let base = naturalPointSize(image)
     let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 32
+    let padding: CGFloat = 0 //32
     let maxW = max(vf.width - padding, 200)
     let maxH = max(vf.height - padding, 200)
     let scale = min(maxW / max(base.width, 1), maxH / max(base.height, 1))
@@ -541,7 +597,7 @@ private func fittedContentSize(for image: NSImage) -> CGSize {
 private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     let base = naturalPointSize(image)
     let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 32
+    let padding: CGFloat = 0 //32
     let maxW = max(vf.width - padding, 200)
     let maxH = max(vf.height - padding, 200)
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
@@ -636,7 +692,7 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
 
     let (vBar, hBar) = legacyScrollbarThickness()
     let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 32
+    let padding: CGFloat = 0 //32
 
     let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
     let testFrame = window.frameRect(forContentRect: testContentRect)
