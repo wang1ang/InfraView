@@ -1,8 +1,7 @@
 // InfraView - Enhanced version (macOS, single-file, no sidebar)
 // Features: open images/folders, ←/→ browse same folder, Delete to trash,
 // default 100% per image, slider + preset zoom with live percent,
-// precise window auto-sizing with scrollbar-aware, screen-based one-pass prediction,
-// enhanced error handling and image preloading for better performance.
+// precise window auto-sizing (scrollbar-aware), image preloading, robust errors.
 
 import SwiftUI
 import Combine
@@ -11,7 +10,6 @@ import AppKit
 
 // MARK: - Model
 
-// 缩放模式枚举
 enum FitMode: String, CaseIterable {
     case fitWindowToImage = "Fit window to image"
     case fitImageToWindow = "Fit image to window"
@@ -41,7 +39,7 @@ final class ImageStore: ObservableObject {
                 initialSelectionURL = first
             }
         }
-        
+
         for url in urlsToProcess {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -49,13 +47,10 @@ final class ImageStore: ObservableObject {
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
                 do {
-                    // 使用 contentsOfDirectory 进行浅层遍历，不再进入子文件夹
                     let files = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
-                    
                     for fileURL in files {
-                        // 确保只处理文件，而不是子文件夹
-                        let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
-                        if resourceValues?.isRegularFile == true && exts.contains(fileURL.pathExtension.lowercased()) {
+                        let vals = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                        if vals?.isRegularFile == true && exts.contains(fileURL.pathExtension.lowercased()) {
                             collected.append(fileURL)
                         }
                     }
@@ -66,17 +61,16 @@ final class ImageStore: ObservableObject {
                 collected.append(url)
             }
         }
-        
-        // 去重 + 稳定排序（同名时按完整路径）
+
         let uniqueURLs = Array(Set(collected))
         imageURLs = uniqueURLs.sorted { lhs, rhs in
             let n = lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent)
             if n != .orderedSame { return n == .orderedAscending }
             return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
         }
-        
-        if let url = initialSelectionURL, let index = imageURLs.firstIndex(of: url) {
-            selection = index
+
+        if let u = initialSelectionURL, let idx = imageURLs.firstIndex(of: u) {
+            selection = idx
         } else {
             selection = imageURLs.isEmpty ? nil : 0
         }
@@ -92,6 +86,7 @@ final class ImageStore: ObservableObject {
 }
 
 // MARK: - ContentView
+
 struct ContentView: View {
     @StateObject private var store = ImageStore()
     @State private var zoom: CGFloat = 1
@@ -100,7 +95,6 @@ struct ContentView: View {
     @State private var scalePercent: Int = 100
     @State private var fitMode: FitMode = .fitWindowToImage
     private let zoomPresets: [CGFloat] = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
-    
     @State private var windowWidth: CGFloat = 800
 
     var body: some View {
@@ -108,12 +102,8 @@ struct ContentView: View {
             Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen, fitMode: fitMode) { p in
                 scalePercent = p
             }
-            .onAppear {
-                windowWidth = geometry.size.width
-            }
-            .onChange(of: geometry.size.width) { _, newWidth in
-                windowWidth = newWidth
-            }
+            .onAppear { windowWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { _, newW in windowWidth = newW }
         }
         .toolbar {
             if windowWidth > 750 {
@@ -127,31 +117,21 @@ struct ContentView: View {
             allowedContentTypes: [.image, .png, .jpeg, .tiff, .gif, .bmp, .heic, .webPCompat, .folder],
             allowsMultipleSelection: true
         ) { result in
-            if case .success(let urls) = result {
-                store.load(urls: urls)
-            }
+            if case .success(let urls) = result { store.load(urls: urls) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
     }
-    
+
     var fullToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
                 .keyboardShortcut("o", modifiers: [.command])
-            
+
             Menu {
                 ForEach(FitMode.allCases, id: \.self) { mode in
-                    Button(action: {
-                        fitMode = mode
-                    }) {
-                        HStack {
-                            Text(mode.rawValue)
-                            Spacer()
-                            if fitMode == mode {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                    Button(action: { fitMode = mode }) {
+                        HStack { Text(mode.rawValue); Spacer(); if fitMode == mode { Image(systemName: "checkmark") } }
                     }
                 }
                 Divider()
@@ -159,67 +139,41 @@ struct ContentView: View {
             } label: {
                 Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
             }
-            
+
             HStack {
                 Image(systemName: "minus.magnifyingglass")
-                Slider(
-                    value: Binding(get: { zoom }, set: { newV in
-                        // 用户手动调节即退出适配
-                        fitToScreen = false
-                        zoom = newV
-                    }),
-                    in: 0.25...4
-                )
+                Slider(value: Binding(get: { zoom }, set: { v in fitToScreen = false; zoom = v }), in: 0.25...4)
                 Image(systemName: "plus.magnifyingglass")
             }
             .frame(minWidth: 150)
-            Menu(content: {
-                zoomMenuContent
-            }, label: { Text("\(scalePercent)%") })
-            
+            Menu(content: { zoomMenuContent }, label: { Text("\(scalePercent)%") })
+
             Button { previous() } label: { Label("Prev", systemImage: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
             Button { next() } label: { Label("Next", systemImage: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
             Button { deleteCurrent() } label: { Label("Delete", systemImage: "trash") }.keyboardShortcut(.delete, modifiers: [])
         }
     }
-    
+
     var compactToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button { showImporter = true } label: { Image(systemName: "folder") }
                 .keyboardShortcut("o", modifiers: [.command])
-            
+
             Menu {
                 ForEach(FitMode.allCases, id: \.self) { mode in
-                    Button(action: {
-                        fitMode = mode
-                    }) {
-                        HStack {
-                            Text(mode.rawValue)
-                            Spacer()
-                            if fitMode == mode {
-                                Image(systemName: "checkmark")
-                            }
-                        }
+                    Button(action: { fitMode = mode }) {
+                        HStack { Text(mode.rawValue); Spacer(); if fitMode == mode { Image(systemName: "checkmark") } }
                     }
                 }
                 Divider()
                 Toggle(isOn: $fitToScreen) { Text("Manual Fit Toggle") }
-            } label: {
-                Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
-            }
+            } label: { Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
 
             Menu(content: {
-                Slider(
-                    value: Binding(get: { zoom }, set: { newV in
-                        fitToScreen = false
-                        zoom = newV
-                    }),
-                    in: 0.25...4
-                )
-                Divider()
-                zoomMenuContent
+                Slider(value: Binding(get: { zoom }, set: { v in fitToScreen = false; zoom = v }), in: 0.25...4)
+                Divider(); zoomMenuContent
             }, label: { Text("\(scalePercent)%") })
-            
+
             Button { previous() } label: { Image(systemName: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
             Button { next() } label: { Image(systemName: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
             Button { deleteCurrent() } label: { Image(systemName: "trash") }.keyboardShortcut(.delete, modifiers: [])
@@ -230,34 +184,22 @@ struct ContentView: View {
     var zoomMenuContent: some View {
         Button("Fit") { fitToScreen = true }
         Divider()
-        ForEach(zoomPresets, id: \.self) { z in
-            Button("\(Int(z * 100))%") { fitToScreen = false; zoom = z }
-        }
+        ForEach(zoomPresets, id: \.self) { z in Button("\(Int(z * 100))%") { fitToScreen = false; zoom = z } }
     }
 
-    private func next() {
-        guard let sel = store.selection, !store.imageURLs.isEmpty else { return }
-        store.selection = (sel + 1) % store.imageURLs.count
-    }
-    private func previous() {
-        guard let sel = store.selection, !store.imageURLs.isEmpty else { return }
-        store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count
-    }
+    private func next() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel + 1) % store.imageURLs.count }
+    private func previous() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count }
     private func deleteCurrent() {
         guard let idx = store.selection, !store.imageURLs.isEmpty else { return }
         do {
             try store.delete(at: idx)
-            if store.imageURLs.isEmpty {
-                store.selection = nil
-            } else {
-                // 更自然：保持当前位置，若删除的是最后一张则选中新的最后一张
-                store.selection = min(idx, store.imageURLs.count - 1)
-            }
+            store.selection = store.imageURLs.isEmpty ? nil : min(idx, store.imageURLs.count - 1)
         } catch { print("Delete failed:", error) }
     }
 }
 
 // MARK: - Viewer
+
 @MainActor
 struct Viewer: View {
     @ObservedObject var store: ImageStore
@@ -276,115 +218,88 @@ struct Viewer: View {
             let url = store.imageURLs[index]
             ZStack {
                 Color(NSColor.windowBackgroundColor).ignoresSafeArea()
-                
+
                 if isLoading {
                     VStack(spacing: 12) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .scaleEffect(1.2)
-                        Text("Loading...")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
+                        ProgressView().progressViewStyle(CircularProgressViewStyle()).scaleEffect(1.2)
+                        Text("Loading...").font(.headline).foregroundColor(.secondary)
                     }
-                } else if let error = loadingError {
-                    Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: error)
+                } else if let err = loadingError {
+                    Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: err)
                 } else if let img = currentImage {
-                    ZoomableImage(image: img, zoom: $zoom, fitToScreen: $fitToScreen, fitMode: fitMode, onScaleChanged: onScaleChanged)
-                        .id(url)
-                        .onChange(of: fitToScreen) { _, newValue in
-                            let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
-                            if fitMode == .fitWindowToImage && !newValue {
-                                resizeWindowToContentSize(size)
+                    ZoomableImage(
+                        image: img,
+                        zoom: $zoom,
+                        fitToScreen: $fitToScreen,
+                        fitMode: fitMode,
+                        onScaleChanged: onScaleChanged,
+                        onLayoutChange: { needScroll, contentSize in
+                            guard needScroll else { return }
+                            switch fitMode {
+                            case .fitOnlyBigToDesktop, .fitImageToWindow, .fitWindowToImage:
+                                resizeWindowToContentSize(contentSize)
+                            case .fitOnlyBigToWindow, .doNotFit:
+                                break
                             }
                         }
-                        .onChange(of: zoom) { _, newZoom in
-                            if !fitToScreen && fitMode == .fitWindowToImage {
-                                resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom))
-                            }
+                    )
+                    .id(url)
+                    .onChange(of: fitToScreen) { _, newValue in
+                        let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
+                        if fitMode == .fitWindowToImage && !newValue { resizeWindowToContentSize(size) }
+                        else if fitMode == .fitOnlyBigToDesktop && newValue { resizeWindowToContentSize(size) }
+                    }
+                    .onChange(of: zoom) { _, newZoom in
+                        if !fitToScreen && fitMode == .fitWindowToImage {
+                            resizeWindowToContentSize(scaledContentSize(for: img, scale: newZoom))
                         }
-                        .navigationTitle(url.lastPathComponent)
+                    }
+                    .navigationTitle(url.lastPathComponent)
                 } else {
                     Placeholder(title: "No image", systemName: "photo", text: url.lastPathComponent)
                 }
             }
             .onAppear(perform: loadImageForSelection)
-            .onChange(of: store.selection) { _, _ in
-                loadImageForSelection()
-                preloadAdjacentImages()
-            }
-            .onChange(of: fitMode) { _, _ in
-                // 当 fitMode 改变时，重新应用到当前图片
-                if let img = currentImage {
-                    resetForNewImage(img)
-                }
-            }
+            .onChange(of: store.selection) { _, _ in loadImageForSelection(); preloadAdjacentImages() }
+            .onChange(of: fitMode) { _, _ in if let img = currentImage { resetForNewImage(img) } }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
         }
     }
 
     private func loadImageForSelection() {
-        guard let index = store.selection, index < store.imageURLs.count else {
-            currentImage = nil
-            loadingError = nil
-            return
-        }
-        
+        guard let index = store.selection, index < store.imageURLs.count else { currentImage = nil; loadingError = nil; return }
         let url = store.imageURLs[index]
-        
-        // 检查预加载缓存（主线程）
-        if let preloadedImage = preloadedImages[url] {
-            currentImage = preloadedImage
-            loadingError = nil
-            isLoading = false
-            resetForNewImage(preloadedImage)
-            return
+
+        if let cached = preloadedImages[url] {
+            currentImage = cached; loadingError = nil; isLoading = false; resetForNewImage(cached); return
         }
-        
-        isLoading = true
-        loadingError = nil
-        currentImage = nil
-        
+        isLoading = true; loadingError = nil; currentImage = nil
         DispatchQueue.global(qos: .userInitiated).async {
             let (image, error) = loadImageWithError(url: url)
-            
             DispatchQueue.main.async {
-                self.isLoading = false
-                self.currentImage = image
-                self.loadingError = error
-                
-                if let img = image {
-                    resetForNewImage(img)
-                    // 将成功加载的图片加入预加载缓存
-                    preloadedImages[url] = img
-                }
+                self.isLoading = false; self.currentImage = image; self.loadingError = error
+                if let img = image { resetForNewImage(img); preloadedImages[url] = img }
             }
         }
     }
-    
+
     private func preloadAdjacentImages() {
         guard let current = store.selection, !store.imageURLs.isEmpty else { return }
         let urls = store.imageURLs
-        
-        // 预先在主线程判断是否已有缓存，后台只做解码
-        let indicesToPreload = [
-            (current - 1 + urls.count) % urls.count,
-            (current + 1) % urls.count
-        ]
-        
-        for index in indicesToPreload {
-            let url = urls[index]
-            if preloadedImages[url] != nil { continue }
+        let indices = [(current - 1 + urls.count) % urls.count, (current + 1) % urls.count]
+        for i in indices {
+            let u = urls[i]
+            if preloadedImages[u] != nil { continue }
             DispatchQueue.global(qos: .background).async {
-                let (image, _) = loadImageWithError(url: url)
+                let (image, _) = loadImageWithError(url: u)
                 if let image {
                     DispatchQueue.main.async {
-                        // 限制缓存大小，避免内存占用过多（简单 FIFO）
                         if preloadedImages.count > 5 {
                             if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
                             if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
                         }
-                        preloadedImages[url] = image
+                        preloadedImages[u] = image
                     }
                 }
             }
@@ -393,56 +308,35 @@ struct Viewer: View {
 
     private func resetForNewImage(_ img: NSImage) {
         let naturalSize = naturalPointSize(img)
-        
-        // 根据不同的 fitMode 设置初始状态
         switch fitMode {
         case .fitWindowToImage:
-            fitToScreen = false
-            zoom = 1
-            resizeWindowToContentSize(naturalSize)
-            
+            fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize)
         case .fitImageToWindow:
-            fitToScreen = true
-            zoom = 1
-            // 不调整窗口大小，让图片适应当前窗口
-            
+            fitToScreen = true; zoom = 1
         case .fitOnlyBigToWindow:
             let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
             let padding: CGFloat = 100
             let maxW = max(vf.width - padding, 200)
             let maxH = max(vf.height - padding, 200)
-            
-            if naturalSize.width > maxW || naturalSize.height > maxH {
-                fitToScreen = true
-                zoom = 1
-            } else {
-                fitToScreen = false
-                zoom = 1
-                resizeWindowToContentSize(naturalSize)
-            }
-            
+            if naturalSize.width > maxW || naturalSize.height > maxH { fitToScreen = true; zoom = 1 }
+            else { fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize) }
         case .fitOnlyBigToDesktop:
             let screenFrame = NSScreen.main?.frame ?? .zero
             let padding: CGFloat = 50
             let maxW = max(screenFrame.width - padding, 200)
             let maxH = max(screenFrame.height - padding, 200)
-            
             if naturalSize.width > maxW || naturalSize.height > maxH {
-                fitToScreen = true
-                zoom = 1
+                fitToScreen = true; zoom = 1
+                let fitted = fittedContentSize(for: img)
+                resizeWindowToContentSize(fitted)
             } else {
-                fitToScreen = false
-                zoom = 1
-                resizeWindowToContentSize(naturalSize)
+                fitToScreen = false; zoom = 1; resizeWindowToContentSize(naturalSize)
             }
-            
         case .doNotFit:
-            fitToScreen = false
-            zoom = 1
-            // 不调整窗口大小，保持当前窗口尺寸
+            fitToScreen = false; zoom = 1
         }
-        
-        // 更新缩放百分比显示（用统一计算）
+
+        // 更新百分比
         let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
         let padding: CGFloat = 32
         let maxW = max(vf.width - padding, 200)
@@ -452,111 +346,82 @@ struct Viewer: View {
     }
 }
 
-// MARK: - Zoomable Image
+// MARK: - ZoomableImage
+
 struct ZoomableImage: View {
     let image: NSImage
     @Binding var zoom: CGFloat
     @Binding var fitToScreen: Bool
     let fitMode: FitMode
     var onScaleChanged: (Int) -> Void
+    var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
 
     @State private var baseZoom: CGFloat = 1
 
     var body: some View {
-        let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-        let padding: CGFloat = 32
-        let maxW = max(vf.width - padding, 200)
-        let maxH = max(vf.height - padding, 200)
+        GeometryReader { proxy in
+            let maxW = max(proxy.size.width, 1)
+            let maxH = max(proxy.size.height, 1)
 
-        let naturalPt = naturalPointSize(image)
-        let baseW = max(naturalPt.width, 1)
-        let baseH = max(naturalPt.height, 1)
-        let fitScale = min(maxW / baseW, maxH / baseH)
-        let currentScale: CGFloat = fitToScreen ? fitScale : zoom
+            let naturalPt = naturalPointSize(image)
+            let baseW = max(naturalPt.width, 1)
+            let baseH = max(naturalPt.height, 1)
+            let fitScale = min(maxW / baseW, maxH / baseH)
+            let currentScale: CGFloat = fitToScreen ? fitScale : zoom
 
-        let contentW = baseW * currentScale
-        let contentH = baseH * currentScale
-        let needScroll = (contentW > maxW) || (contentH > maxH)
+            let contentW = baseW * currentScale
+            let contentH = baseH * currentScale
+            let needScroll = (contentW > maxW) || (contentH > maxH)
 
-        let contentView: some View = Group {
-            if needScroll {
-                ScrollView([.horizontal, .vertical]) {
+            let view = Group {
+                if needScroll {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: contentW, height: contentH)
+                    }
+                } else {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .frame(width: contentW, height: contentH)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: contentW, height: contentH)
             }
-        }
-        .onAppear {
-            baseZoom = zoom
-            onScaleChanged(Int(round(currentScale * 100)))
-        }
-        .onChange(of: fitToScreen) { _, newFit in
-            let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
-            onScaleChanged(Int(round(cs * 100)))
-        }
-        .onChange(of: zoom) { _, newZoom in
-            if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
-        }
+            .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100))) }
+            .onChange(of: fitToScreen) { _, newFit in
+                let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
+                onScaleChanged(Int(round(cs * 100)))
+            }
+            .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) } }
+            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentW, height: contentH)) }
 
-        // 将捏合手势放在外层，保证无论是否需要滚动都能缩放
-        return contentView
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { v in
-                        fitToScreen = false
-                        zoom = clamp(baseZoom * v, 0.25...4)
-                    }
-                    .onEnded { _ in
-                        baseZoom = zoom
-                    }
-            )
+            view
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...4) }
+                        .onEnded { _ in baseZoom = zoom }
+                )
+        }
     }
 }
 
-// 统一计算当前 scale 的工具函数（避免与局部变量重名）
+// MARK: - Helpers
+
 private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
     let fitScale = min(maxW / baseW, maxH / baseH)
     return isFit ? fitScale : zoom
 }
 
-// MARK: - Helpers
 private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let access = url.startAccessingSecurityScopedResource()
     defer { if access { url.stopAccessingSecurityScopedResource() } }
-    
-    // 首先检查文件是否存在
-    guard FileManager.default.fileExists(atPath: url.path) else {
-        return (nil, "文件不存在")
-    }
-    
-    // 检查文件是否可读
-    guard FileManager.default.isReadableFile(atPath: url.path) else {
-        return (nil, "文件无法读取")
-    }
-    
-    // 尝试直接从 URL 加载
-    if let img = NSImage(contentsOf: url) {
-        return (img, nil)
-    }
-    
-    // 尝试从数据加载
-    do {
-        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-        if let img = NSImage(data: data) {
-            return (img, nil)
-        } else {
-            return (nil, "不支持的图片格式")
-        }
-    } catch {
-        return (nil, "读取文件失败: \(error.localizedDescription)")
-    }
+    guard FileManager.default.fileExists(atPath: url.path) else { return (nil, "文件不存在") }
+    guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, "文件无法读取") }
+    if let img = NSImage(contentsOf: url) { return (img, nil) }
+    do { let data = try Data(contentsOf: url, options: [.mappedIfSafe]); if let img = NSImage(data: data) { return (img, nil) } else { return (nil, "不支持的图片格式") } }
+    catch { return (nil, "读取文件失败: \(error.localizedDescription)") }
 }
 
 private func displayScaleFactor() -> CGFloat {
@@ -566,32 +431,24 @@ private func displayScaleFactor() -> CGFloat {
 
 private func pixelSize(_ img: NSImage) -> CGSize {
     var maxW = 0, maxH = 0
-    for rep in img.representations where rep.pixelsWide > 0 && rep.pixelsHigh > 0 {
-        maxW = max(maxW, rep.pixelsWide)
-        maxH = max(maxH, rep.pixelsHigh)
-    }
+    for rep in img.representations where rep.pixelsWide > 0 && rep.pixelsHigh > 0 { maxW = max(maxW, rep.pixelsWide); maxH = max(maxH, rep.pixelsHigh) }
     if maxW == 0 || maxH == 0, let tiff = img.tiffRepresentation, let b = NSBitmapImageRep(data: tiff) {
-        maxW = max(maxW, b.pixelsWide)
-        maxH = max(maxH, b.pixelsHigh)
+        maxW = max(maxW, b.pixelsWide); maxH = max(maxH, b.pixelsHigh)
     }
     if maxW == 0 || maxH == 0 {
-        let sf = displayScaleFactor()
-        let w = Int(img.size.width * sf), h = Int(img.size.height * sf)
+        let sf = displayScaleFactor(); let w = Int(img.size.width * sf), h = Int(img.size.height * sf)
         if w > 0 && h > 0 { maxW = w; maxH = h }
     }
     return CGSize(width: CGFloat(maxW), height: CGFloat(maxH))
 }
 
 private func naturalPointSize(_ img: NSImage) -> CGSize {
-    let px = pixelSize(img)
-    let sf = displayScaleFactor()
-    return CGSize(width: px.width / sf, height: px.height / sf)
+    let px = pixelSize(img); let sf = displayScaleFactor(); return CGSize(width: px.width / sf, height: px.height / sf)
 }
 
 private func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFloat) {
     if NSScroller.preferredScrollerStyle == .overlay { return (0, 0) }
-    let t = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-    return (vertical: t, horizontal: t)
+    let t = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy); return (vertical: t, horizontal: t)
 }
 
 private func fittedContentSize(for image: NSImage) -> CGSize {
@@ -615,58 +472,71 @@ private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
 
 private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     guard let window = NSApp.keyWindow else { return }
+
     let minW: CGFloat = 360, minH: CGFloat = 280
+    // 想要的“SwiftUI 可布局区域”尺寸
+    var layoutW = max(ceil(desiredContentSize.width), minW)
+    var layoutH = max(ceil(desiredContentSize.height), minH)
 
-    var desiredW = max(desiredContentSize.width, minW)
-    var desiredH = max(desiredContentSize.height, minH)
+    // 当前窗口下：contentRect 与 contentLayoutRect 的差值（工具栏等占用）
+    let currentFrame = window.frame
+    let currentContentRect = window.contentRect(forFrameRect: currentFrame)
+    let currentLayoutRect = window.contentLayoutRect
+    let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
+    let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
 
+    // 目标 contentRect = 目标 layout 尺寸 + 这段“layout 被吃掉的差值”
+    var contentW = layoutW + layoutExtraW
+    var contentH = layoutH + layoutExtraH + 1 // +1 防 1px 缝
+
+    // 估计滚动条（仅 legacy）占位，避免算小
+    let (vBar, hBar) = legacyScrollbarThickness()
     let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
     let padding: CGFloat = 32
-    
-    // 计算窗口装饰（标题栏、工具栏等）占用的高度
-    let testContentRect = NSRect(origin: .zero, size: NSSize(width: 100, height: 100))
-    let testWindowFrame = window.frameRect(forContentRect: testContentRect)
-    let windowDecorationHeight = testWindowFrame.size.height - testContentRect.size.height
-    let windowDecorationWidth = testWindowFrame.size.width - testContentRect.size.width
-    
-    // 从可用空间中减去窗口装饰的尺寸
-    let availW0 = max(vf.width - padding - windowDecorationWidth, minW)
-    let availH0 = max(vf.height - padding - windowDecorationHeight, minH)
 
-    let (vBar, hBar) = legacyScrollbarThickness()
+    // 屏幕内最大 contentRect 尺寸（不含装饰）
+    let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
+    let testFrame = window.frameRect(forContentRect: testContentRect)
+    let decoW = testFrame.width  - testContentRect.width
+    let decoH = testFrame.height - testContentRect.height
+    var availW = max(vf.width  - padding - decoW, minW)
+    var availH = max(vf.height - padding - decoH, minH)
 
-    var needV = desiredH > availH0
-    var needH = desiredW > availW0
-    if needV || needH {
-        var availW = availW0
-        var availH = availH0
-        for _ in 0..<2 {
-            if needV { availW -= vBar }
-            if needH { availH -= hBar }
-            let nV = desiredH > availH
-            let nH = desiredW > availW
-            if nV == needV && nH == needH { break }
-            needV = nV; needH = nH
-        }
-        if needV { desiredW += vBar }
-        if needH { desiredH += hBar }
+    // 两次迭代，收敛是否需要滚动条并给内容预留条宽
+    var needV = contentH > availH
+    var needH = contentW > availW
+    for _ in 0..<2 {
+        var nextAvailW = availW
+        var nextAvailH = availH
+        if needV { nextAvailW -= vBar }
+        if needH { nextAvailH -= hBar }
+        let nextNeedV = contentH > nextAvailH
+        let nextNeedH = contentW > nextAvailW
+        if nextNeedV == needV && nextNeedH == needH { break }
+        needV = nextNeedV; needH = nextNeedH
+        availW = nextAvailW; availH = nextAvailH
     }
+    if needV { contentW += vBar }
+    if needH { contentH += hBar }
 
-    var targetFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: desiredW, height: desiredH)))
-    let current = window.frame
-    let topY = current.maxY
-    targetFrame.origin.x = current.origin.x
-    targetFrame.origin.y = topY - targetFrame.size.height
+    // 反推窗口帧；保持窗口顶边不动
+    var targetFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH))
+    let currentTop = window.frame.maxY
+    targetFrame.origin.x = window.frame.origin.x
+    targetFrame.origin.y = currentTop - targetFrame.height
 
+    // 屏幕边界约束
     if let screen = window.screen {
         let vf2 = screen.visibleFrame
-        targetFrame.size.width = min(targetFrame.size.width, vf2.width)
-        targetFrame.size.height = min(targetFrame.size.height, vf2.height)
-        targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.size.width)
-        targetFrame.origin.y = max(vf2.minY, topY - targetFrame.size.height)
+        if targetFrame.width  > vf2.width  { targetFrame.size.width  = vf2.width }
+        if targetFrame.height > vf2.height { targetFrame.size.height = vf2.height }
+        targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
+        targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
     }
+
     window.setFrame(targetFrame, display: true, animate: false)
 }
+
 
 @inline(__always)
 private func clamp<T: Comparable>(_ x: T, _ r: ClosedRange<T>) -> T { min(max(x, r.lowerBound), r.upperBound) }
@@ -685,7 +555,8 @@ struct Placeholder: View {
     }
 }
 
-// 新系统已有 UTType.webP，这里做兼容命名，避免冲突
+// MARK: - Extensions
+
 extension UTType {
     static var webPCompat: UTType {
         if let t = UTType("public.webp") { return t }
@@ -697,3 +568,5 @@ extension Notification.Name {
     static let infraNext = Notification.Name("InfraView.Next")
     static let infraPrev = Notification.Name("InfraView.Prev")
 }
+
+
