@@ -321,6 +321,7 @@ struct Viewer: View {
         let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
+    /*
     private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
         guard let win = NSApp.keyWindow else { return fittedContentSize(for: image) } // 兜底
         let base = naturalPointSize(image)
@@ -329,6 +330,44 @@ struct Viewer: View {
                         maxLayout.height / max(base.height, 1))
         return CGSize(width: ceil(base.width * scale),
                       height: ceil(base.height * scale))
+    }
+    */
+    private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
+        guard let win = NSApp.keyWindow else { return naturalPointSize(image) }
+
+        let base = naturalPointSize(image)
+        // 最大 contentLayout 尺寸（无余量）
+        var avail = maxContentLayoutSizeInVisibleFrame(win)
+
+        // 估算 legacy 滚动条厚度
+        let (vBar, hBar) = legacyScrollbarThickness()
+
+        // 两轮迭代：先假设无条，再根据是否超出决定扣条宽，再重算
+        for _ in 0..<2 {
+            let scale = min(avail.width / max(base.width, 1),
+                            avail.height / max(base.height, 1))
+            let w = floor(base.width * scale)    // 用 floor，避免 1px 溢出导致出条
+            let h = floor(base.height * scale)
+
+            // 判断是否仍会出条（> avail），如果会，给出“扣条后的可用区”再来一轮
+            let needV = h > avail.height
+            let needH = w > avail.width
+            var nextAvail = avail
+            if needV { nextAvail.width  = max(0, nextAvail.width  - vBar) }
+            if needH { nextAvail.height = max(0, nextAvail.height - hBar) }
+
+            if nextAvail == avail {
+                // 收敛
+                return CGSize(width: w, height: h)
+            }
+            avail = nextAvail
+        }
+
+        // 兜底（一般到不了）
+        let scale = min(avail.width / max(base.width, 1),
+                        avail.height / max(base.height, 1))
+        return CGSize(width: floor(base.width * scale),
+                      height: floor(base.height * scale))
     }
 
     /// 返回：在当前屏幕的 visibleFrame 内，当前窗口样式下最大的 contentLayoutRect 尺寸
@@ -675,7 +714,6 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
 
     // ✅ 关键补丁：先确保窗口不是 zoomed / fullScreen
     if window.styleMask.contains(.fullScreen) { return }      // 全屏下不处理
-    if window.isZoomed { window.zoom(nil) }                   // 退出“标准缩放”状态
 
     let minW: CGFloat = 360, minH: CGFloat = 280
     var layoutW = max(ceil(desiredContentSize.width),  minW)
@@ -729,8 +767,25 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
         targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
         targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
     }
+    if window.isZoomed {
+        // window.zoom(nil)
+        // 在 zoomed 状态下，用 delegate 指定“标准帧”= targetFrame，然后执行一次无动画 zoom
+        let helper = WindowZoomHelper.shared
+        let oldDelegate = window.delegate
+        window.delegate = helper
+        helper.pendingStandardFrame = targetFrame
 
-    window.setFrame(targetFrame, display: true, animate: false)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0  // 无动画切换，避免“半屏回弹”的视觉跳变
+            window.zoom(nil)  // 退出 zoomed，直接采用我们提供的标准帧
+        }
+
+        helper.pendingStandardFrame = nil
+        window.delegate = oldDelegate
+    }                   // 退出“标准缩放”状态
+    else {
+        window.setFrame(targetFrame, display: true, animate: false)
+    }
 }
 
 
@@ -751,6 +806,15 @@ struct Placeholder: View {
     }
 }
 
+final class WindowZoomHelper: NSObject, NSWindowDelegate {
+    static let shared = WindowZoomHelper()
+    var pendingStandardFrame: NSRect?
+
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
+        if let f = pendingStandardFrame { return f }
+        return defaultFrame
+    }
+}
 // MARK: - Extensions
 
 extension UTType {
