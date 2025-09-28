@@ -289,7 +289,7 @@ struct Viewer: View {
             let (image, error) = loadImageWithError(url: url)
             DispatchQueue.main.async {
                 self.isLoading = false; self.currentImage = image; self.loadingError = error
-                if let img = image { resetForNewImage(img); preloadedImages[url] = img; resizeOnceForCurrentFit(img) }
+                if let img = image { resetForNewImage(img); preloadedImages[url] = img;}
             }
         }
     }
@@ -399,6 +399,26 @@ struct Viewer: View {
 
         return CGSize(width: floor(maxLayoutW), height: floor(maxLayoutH))
     }
+    private func accurateFitScale(for image: NSImage) -> CGFloat {
+        guard let win = NSApp.keyWindow else { return 1 }
+        let base = naturalPointSize(image)
+        var avail = maxContentLayoutSizeInVisibleFrame(win)
+        let (vBar, hBar) = legacyScrollbarThickness()
+        for _ in 0..<2 {
+            let s = min(avail.width / max(base.width, 1),
+                        avail.height / max(base.height, 1))
+            let w = floor(base.width * s), h = floor(base.height * s)
+            let needV = h > avail.height
+            let needH = w > avail.width
+            var next = avail
+            if needV { next.width  = max(0, next.width  - vBar) }
+            if needH { next.height = max(0, next.height - hBar) }
+            if next == avail { return s }
+            avail = next
+        }
+        return min(avail.width / max(base.width, 1),
+                   avail.height / max(base.height, 1))
+    }
 
     private func resetForNewImage(_ img: NSImage) {
         let naturalSize = naturalPointSize(img)
@@ -416,25 +436,23 @@ struct Viewer: View {
             else { fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
             }
         case .fitOnlyBigToDesktop:
-            let screenFrame = NSScreen.main?.frame ?? .zero
-            let padding: CGFloat = 50
-            let maxW = max(screenFrame.width - padding, 200)
-            let maxH = max(screenFrame.height - padding, 200)
-            if naturalSize.width > maxW || naturalSize.height > maxH {
-                fitToScreen = true; zoom = 1
-                //let fitted = fittedContentSize(for: img)
-                //let fitted = fittedContentSizeAccurate(for: img)
-                //resizeWindowToContentSize(fitted)
-            } else {
-                fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
+            if isBigOnThisDesktop(img) {
+                fitToScreen = true
+                zoom = 1
+                resizeOnceForCurrentFit(img)
+                
+                let s = accurateFitScale(for: img)
+                fitToScreen = false
+                zoom = s
             }
+            else { fitToScreen = false; zoom = 1 }
         case .doNotFit:
             fitToScreen = false; zoom = 1
         }
 
         // 更新百分比
         let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-        let padding: CGFloat = 32
+        let padding: CGFloat = 0 //32
         let maxW = max(vf.width - padding, 200)
         let maxH = max(vf.height - padding, 200)
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
