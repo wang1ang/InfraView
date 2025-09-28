@@ -106,11 +106,7 @@ struct ContentView: View {
             .onChange(of: geometry.size.width) { _, newW in windowWidth = newW }
         }
         .toolbar {
-            if windowWidth > 750 {
-                fullToolbar
-            } else {
-                compactToolbar
-            }
+            compactToolbar
         }
         .fileImporter(
             isPresented: $showImporter,
@@ -121,37 +117,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
-    }
-
-    var fullToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
-            Button { showImporter = true } label: { Label("Open", systemImage: "folder") }
-                .keyboardShortcut("o", modifiers: [.command])
-
-            Menu {
-                ForEach(FitMode.allCases, id: \.self) { mode in
-                    Button(action: { fitMode = mode }) {
-                        HStack { Text(mode.rawValue); Spacer(); if fitMode == mode { Image(systemName: "checkmark") } }
-                    }
-                }
-                Divider()
-                Toggle(isOn: $fitToScreen) { Text("Manual Fit Toggle") }
-            } label: {
-                Label("Fit", systemImage: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
-            }
-
-            HStack {
-                Image(systemName: "minus.magnifyingglass")
-                Slider(value: Binding(get: { zoom }, set: { v in fitToScreen = false; zoom = v }), in: 0.25...4)
-                Image(systemName: "plus.magnifyingglass")
-            }
-            .frame(minWidth: 150)
-            Menu(content: { zoomMenuContent }, label: { Text("\(scalePercent)%") })
-
-            Button { previous() } label: { Label("Prev", systemImage: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
-            Button { next() } label: { Label("Next", systemImage: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
-            Button { deleteCurrent() } label: { Label("Delete", systemImage: "trash") }.keyboardShortcut(.delete, modifiers: [])
-        }
     }
 
     var compactToolbar: some ToolbarContent {
