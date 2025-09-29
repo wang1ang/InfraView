@@ -190,6 +190,18 @@ struct Viewer: View {
         NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible }
     }
 
+    @inline(__always)
+    private func maybeResizeWindow(for img: NSImage) {
+        switch fitMode {
+        case .fitWindowToImage:
+            resizeOnceForCurrentFit(img)
+        case .fitOnlyBigToDesktop:
+            resizeOnceForCurrentFit(img)
+        default:
+            break  // .fitOnlyBigToWindow & .fitImageToWindow & .doNotFit 都不动窗口
+        }
+    }
+
     var body: some View {
         if let index = store.selection, index < store.imageURLs.count {
             let url = store.imageURLs[index]
@@ -223,7 +235,7 @@ struct Viewer: View {
                     )
                     .id(url)
                     .onChange(of: fitToScreen) { _, _ in
-                        if fitMode != .fitImageToWindow, let img = currentImage { resizeOnceForCurrentFit(img) }
+                        if let img = currentImage { maybeResizeWindow(for: img)}
                     }
                     .onChange(of: zoom) { _, newZoom in
                         if !fitToScreen && fitMode == .fitWindowToImage {
@@ -244,7 +256,6 @@ struct Viewer: View {
             }
             .onChange(of: fitMode) { _, _ in if let img = currentImage {
                 resetForNewImage(img)
-                //resizeOnceForCurrentFit(img)
             } }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
@@ -440,9 +451,7 @@ struct Viewer: View {
         let maxH = max(vf.height - padding, 200)
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
         onScaleChanged(Int(round(scale * 100)))
-        if fitMode != .fitImageToWindow && !(fitMode == .fitOnlyBigToDesktop && isBigOnThisDesktop(img)) {
-            resizeOnceForCurrentFit(img)
-        }
+        maybeResizeWindow(for: img)
     }
     private func targetSize(for img: NSImage) -> CGSize {
         if fitToScreen {
