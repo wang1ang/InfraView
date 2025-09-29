@@ -197,6 +197,8 @@ struct Viewer: View {
             resizeOnceForCurrentFit(img)
         case .fitOnlyBigToDesktop:
             resizeOnceForCurrentFit(img)
+            //let size = targetSize(for: img)
+            //resizeWindowToContentSize(size, scrollbarAware: false)
         default:
             break  // .fitOnlyBigToWindow & .fitImageToWindow & .doNotFit 都不动窗口
         }
@@ -416,7 +418,7 @@ struct Viewer: View {
         let naturalSize = naturalPointSize(img)
         switch fitMode {
         case .fitWindowToImage:
-            fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
+            fitToScreen = false; zoom = 1;
         case .fitImageToWindow:
             fitToScreen = true; zoom = 1
         case .fitOnlyBigToWindow:
@@ -425,7 +427,7 @@ struct Viewer: View {
             let maxW = max(vf.width - padding, 200)
             let maxH = max(vf.height - padding, 200)
             if naturalSize.width > maxW || naturalSize.height > maxH { fitToScreen = true; zoom = 1 }
-            else { fitToScreen = false; zoom = 1; //resizeWindowToContentSize(naturalSize)
+            else { fitToScreen = false; zoom = 1;
             }
         case .fitOnlyBigToDesktop:
             if isBigOnThisDesktop(img) {
@@ -446,9 +448,8 @@ struct Viewer: View {
 
         // 更新百分比
         let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-        let padding: CGFloat = 0 //32
-        let maxW = max(vf.width - padding, 200)
-        let maxH = max(vf.height - padding, 200)
+        let maxW = max(vf.width, 200)
+        let maxH = max(vf.height, 200)
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
         onScaleChanged(Int(round(scale * 100)))
         maybeResizeWindow(for: img)
@@ -478,7 +479,9 @@ struct Viewer: View {
     }
 
     private func resizeOnceForCurrentFit(_ img: NSImage) {
-        resizeWindowToContentSize(targetSize(for: img))
+        let desired = targetSize(for: img)
+        let aware = (fitMode != .fitOnlyBigToDesktop)
+        resizeWindowToContentSize(desired, scrollbarAware: aware)
     }
 }
 
@@ -511,7 +514,9 @@ struct ZoomableImage: View {
 
             let contentW = baseW * currentScale
             let contentH = baseH * currentScale
-            let needScroll = (contentW > maxW) || (contentH > maxH)
+            
+            let eps: CGFloat = 0.5
+            let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
 
             let view = Group {
                 if needScroll {
@@ -620,13 +625,12 @@ private func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFlo
 private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     let base = naturalPointSize(image)
     let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 0 //32
-    let maxW = max(vf.width - padding, 200)
-    let maxH = max(vf.height - padding, 200)
+    let maxW = max(vf.width, 200)
+    let maxH = max(vf.height, 200)
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
 
-private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
+private func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Bool = true) {
     guard let window = NSApp.keyWindow else { return }
 
     // ✅ 关键补丁：先确保窗口不是 zoomed / fullScreen
@@ -643,35 +647,38 @@ private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
 
     var contentW = layoutW + layoutExtraW
-    var contentH = layoutH + layoutExtraH + 1
+    var contentH = layoutH + layoutExtraH + (scrollbarAware ? 1 : 0)
 
     let (vBar, hBar) = legacyScrollbarThickness()
     let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 0 //32
 
     let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
     let testFrame = window.frameRect(forContentRect: testContentRect)
     let decoW = testFrame.width  - testContentRect.width
     let decoH = testFrame.height - testContentRect.height
-    var availW = max(vf.width  - padding - decoW, minW)
-    var availH = max(vf.height - padding - decoH, minH)
-
-    var needV = contentH > availH
-    var needH = contentW > availW
-    for _ in 0..<2 {
-        var nextAvailW = availW
-        var nextAvailH = availH
-        if needV { nextAvailW -= vBar }
-        if needH { nextAvailH -= hBar }
-        let nextNeedV = contentH > nextAvailH
-        let nextNeedH = contentW > nextAvailW
-        if nextNeedV == needV && nextNeedH == needH { break }
-        needV = nextNeedV; needH = nextNeedH
-        availW = nextAvailW; availH = nextAvailH
+    var availW = max(vf.width  - decoW, minW)
+    var availH = max(vf.height - decoH, minH)
+    
+    if scrollbarAware {
+        var needV = contentH > availH
+        var needH = contentW > availW
+        for _ in 0..<2 {
+            var nextAvailW = availW
+            var nextAvailH = availH
+            if needV { nextAvailW -= vBar }
+            if needH { nextAvailH -= hBar }
+            let nextNeedV = contentH > nextAvailH
+            let nextNeedH = contentW > nextAvailW
+            if nextNeedV == needV && nextNeedH == needH { break }
+            needV = nextNeedV; needH = nextNeedH
+            availW = nextAvailW; availH = nextAvailH
+        }
+        if needV { contentW += vBar }
+        if needH { contentH += hBar }
+    } else {
+        contentW = min(contentW, availW)
+        contentH = min(contentH, availH)
     }
-    if needV { contentW += vBar }
-    if needH { contentH += hBar }
-
     var targetFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH))
     let currentTop = window.frame.maxY
     targetFrame.origin.x = window.frame.origin.x
