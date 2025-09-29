@@ -95,22 +95,19 @@ struct ContentView: View {
     @State private var scalePercent: Int = 100
     @State private var fitMode: FitMode = .fitWindowToImage
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
-    @State private var windowWidth: CGFloat = 800
 
     var body: some View {
         GeometryReader { geometry in
             Viewer(store: store, zoom: $zoom, fitToScreen: $fitToScreen, fitMode: fitMode) { p in
                 scalePercent = p
             }
-            .onAppear { windowWidth = geometry.size.width }
-            .onChange(of: geometry.size.width) { _, newW in windowWidth = newW }
         }
         .toolbar {
             compactToolbar
         }
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.image, .png, .jpeg, .tiff, .gif, .bmp, .heic, .webPCompat, .folder],
+            allowedContentTypes: [.image, .webPCompat, .folder],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result { store.load(urls: urls) }
@@ -177,7 +174,17 @@ struct Viewer: View {
     @State private var loadingError: String? = nil
     @State private var isLoading: Bool = false
     @State private var preloadedImages: [URL: NSImage] = [:]
-    
+    @State private var preloadOrder: [URL] = []
+    private let preloadCapacity = 8
+
+    private func touchPreloadOrder(_ url: URL) {
+        preloadOrder.removeAll { $0 == url }
+        preloadOrder.append(url)
+        while preloadOrder.count > preloadCapacity {
+            let evict = preloadOrder.removeFirst()
+            preloadedImages.removeValue(forKey: evict)
+        }
+    }
     
 
     var body: some View {
@@ -248,32 +255,33 @@ struct Viewer: View {
             let (image, error) = loadImageWithError(url: url)
             DispatchQueue.main.async {
                 self.isLoading = false; self.currentImage = image; self.loadingError = error
-                if let img = image { resetForNewImage(img); preloadedImages[url] = img;}
+                if let img = image { resetForNewImage(img); preloadedImages[url] = img; touchPreloadOrder(url)}
             }
         }
     }
 
+    // 替换 preloadAdjacentImages()
     private func preloadAdjacentImages() {
         guard let current = store.selection, !store.imageURLs.isEmpty else { return }
         let urls = store.imageURLs
-        let indices = [(current - 1 + urls.count) % urls.count, (current + 1) % urls.count]
-        for i in indices {
-            let u = urls[i]
-            if preloadedImages[u] != nil { continue }
+        let candidates = [
+            (current - 1 + urls.count) % urls.count,
+            (current + 1) % urls.count
+        ].map { urls[$0] }
+
+        for u in candidates where preloadedImages[u] == nil {
             DispatchQueue.global(qos: .background).async {
                 let (image, _) = loadImageWithError(url: u)
                 if let image {
                     DispatchQueue.main.async {
-                        if preloadedImages.count > 5 {
-                            if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
-                            if let first = preloadedImages.keys.first { preloadedImages.removeValue(forKey: first) }
-                        }
                         preloadedImages[u] = image
+                        touchPreloadOrder(u) // LRU 维护
                     }
                 }
             }
         }
     }
+
     private func isBigOnThisDesktop(_ img: NSImage) -> Bool {
         guard let win = NSApp.keyWindow else { return false }
         let natural = naturalPointSize(img)
@@ -385,13 +393,15 @@ struct Viewer: View {
             }
         case .fitOnlyBigToDesktop:
             if isBigOnThisDesktop(img) {
-                fitToScreen = true
-                zoom = 1
-                resizeOnceForCurrentFit(img)
-                
-                let s = accurateFitScale(for: img)
-                fitToScreen = false
-                zoom = s
+                DispatchQueue.main.async {
+                    fitToScreen = true
+                    zoom = 1
+                    resizeOnceForCurrentFit(img)
+                    
+                    let s = accurateFitScale(for: img)
+                    fitToScreen = false
+                    zoom = s
+                }
             }
             else { fitToScreen = false; zoom = 1 }
         case .doNotFit:
