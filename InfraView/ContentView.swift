@@ -212,14 +212,6 @@ struct Viewer: View {
                         }
                     )
                     .id(url)
-                    /*
-                    .onChange(of: fitToScreen) { _, newValue in
-                        let size = newValue ? fittedContentSize(for: img) : scaledContentSize(for: img, scale: zoom)
-                        if fitMode == .fitWindowToImage && !newValue { //resizeWindowToContentSize(size)
-                        }
-                        else if fitMode == .fitOnlyBigToDesktop && newValue { //resizeWindowToContentSize(size)
-                        }
-                    }*/
                     .onChange(of: fitToScreen) { _, _ in
                         if fitMode != .fitImageToWindow, let img = currentImage { resizeOnceForCurrentFit(img) }
                     }
@@ -288,17 +280,6 @@ struct Viewer: View {
         let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
-    /*
-    private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
-        guard let win = NSApp.keyWindow else { return fittedContentSize(for: image) } // 兜底
-        let base = naturalPointSize(image)
-        let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
-        let scale = min(maxLayout.width / max(base.width, 1),
-                        maxLayout.height / max(base.height, 1))
-        return CGSize(width: ceil(base.width * scale),
-                      height: ceil(base.height * scale))
-    }
-    */
     private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
         guard let win = NSApp.keyWindow else { return naturalPointSize(image) }
 
@@ -439,24 +420,8 @@ struct Viewer: View {
             case .fitImageToWindow:
                 return fittedContentSizeAccurate(for: img)
             case .fitOnlyBigToWindow:
-                /*
-                let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-                let padding: CGFloat = 100
-                let maxW = max(vf.width - padding, 200)
-                let maxH = max(vf.height - padding, 200)
-                let natural = naturalPointSize(img)
-                return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
-                */
                 return isBigOnThisDesktop(img) ? fittedContentSizeAccurate(for: img) : naturalPointSize(img)
             case .fitOnlyBigToDesktop:
-                /*
-                let screenFrame = NSApp.keyWindow?.screen?.frame ?? .zero
-                let padding: CGFloat = 50
-                let maxW = max(screenFrame.width - padding, 200)
-                let maxH = max(screenFrame.height - padding, 200)
-                let natural = naturalPointSize(img)
-                return (natural.width > maxW || natural.height > maxH) ? fittedContentSize(for: img) : natural
-                */
                 if isBigOnThisDesktop(img) {
                     return fittedContentSizeAccurate(for: img)
                 } else {
@@ -628,74 +593,7 @@ private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     let maxH = max(vf.height - padding, 200)
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
-/*
-private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
-    guard let window = NSApp.keyWindow else { return }
 
-    let minW: CGFloat = 360, minH: CGFloat = 280
-    // 想要的“SwiftUI 可布局区域”尺寸
-    var layoutW = max(ceil(desiredContentSize.width), minW)
-    var layoutH = max(ceil(desiredContentSize.height), minH)
-
-    // 当前窗口下：contentRect 与 contentLayoutRect 的差值（工具栏等占用）
-    let currentFrame = window.frame
-    let currentContentRect = window.contentRect(forFrameRect: currentFrame)
-    let currentLayoutRect = window.contentLayoutRect
-    let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
-    let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
-
-    // 目标 contentRect = 目标 layout 尺寸 + 这段“layout 被吃掉的差值”
-    var contentW = layoutW + layoutExtraW
-    var contentH = layoutH + layoutExtraH + 1 // +1 防 1px 缝
-
-    // 估计滚动条（仅 legacy）占位，避免算小
-    let (vBar, hBar) = legacyScrollbarThickness()
-    let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 32
-
-    // 屏幕内最大 contentRect 尺寸（不含装饰）
-    let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
-    let testFrame = window.frameRect(forContentRect: testContentRect)
-    let decoW = testFrame.width  - testContentRect.width
-    let decoH = testFrame.height - testContentRect.height
-    var availW = max(vf.width  - padding - decoW, minW)
-    var availH = max(vf.height - padding - decoH, minH)
-
-    // 两次迭代，收敛是否需要滚动条并给内容预留条宽
-    var needV = contentH > availH
-    var needH = contentW > availW
-    for _ in 0..<2 {
-        var nextAvailW = availW
-        var nextAvailH = availH
-        if needV { nextAvailW -= vBar }
-        if needH { nextAvailH -= hBar }
-        let nextNeedV = contentH > nextAvailH
-        let nextNeedH = contentW > nextAvailW
-        if nextNeedV == needV && nextNeedH == needH { break }
-        needV = nextNeedV; needH = nextNeedH
-        availW = nextAvailW; availH = nextAvailH
-    }
-    if needV { contentW += vBar }
-    if needH { contentH += hBar }
-
-    // 反推窗口帧；保持窗口顶边不动
-    var targetFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH))
-    let currentTop = window.frame.maxY
-    targetFrame.origin.x = window.frame.origin.x
-    targetFrame.origin.y = currentTop - targetFrame.height
-
-    // 屏幕边界约束
-    if let screen = window.screen {
-        let vf2 = screen.visibleFrame
-        if targetFrame.width  > vf2.width  { targetFrame.size.width  = vf2.width }
-        if targetFrame.height > vf2.height { targetFrame.size.height = vf2.height }
-        targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
-        targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
-    }
-
-    window.setFrame(targetFrame, display: true, animate: false)
-}
-*/
 private func resizeWindowToContentSize(_ desiredContentSize: CGSize) {
     guard let window = NSApp.keyWindow else { return }
 
