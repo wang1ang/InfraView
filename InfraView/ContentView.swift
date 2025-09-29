@@ -132,7 +132,7 @@ struct ContentView: View {
             } label: { Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
 
             Menu(content: {
-                Slider(value: Binding(get: { zoom }, set: { v in fitToScreen = false; zoom = v }), in: 0.25...4)
+                Slider(value: Binding(get: { zoom }, set: { v in fitToScreen = false; zoom = v }), in: 0.25...5)
                 Divider(); zoomMenuContent
             }, label: { Text("\(scalePercent)%") })
 
@@ -186,6 +186,9 @@ struct Viewer: View {
         }
     }
     
+    private func currentWindow() -> NSWindow? {
+        NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible }
+    }
 
     var body: some View {
         if let index = store.selection, index < store.imageURLs.count {
@@ -234,6 +237,11 @@ struct Viewer: View {
             }
             .onAppear(perform: loadImageForSelection)
             .onChange(of: store.selection) { _, _ in loadImageForSelection(); preloadAdjacentImages() }
+            .onChange(of: store.imageURLs) { _, newList in
+                let keep = Set(newList)
+                preloadOrder.removeAll { !keep.contains($0) }
+                preloadedImages = preloadedImages.filter { keep.contains($0.key) }
+            }
             .onChange(of: fitMode) { _, _ in if let img = currentImage {
                 resetForNewImage(img)
                 //resizeOnceForCurrentFit(img)
@@ -243,24 +251,41 @@ struct Viewer: View {
         }
     }
 
+    @State private var loadToken: UUID = .init()
     private func loadImageForSelection() {
-        guard let index = store.selection, index < store.imageURLs.count else { currentImage = nil; loadingError = nil; return }
+        guard let index = store.selection, index < store.imageURLs.count else {
+            currentImage = nil; loadingError = nil; return
+        }
         let url = store.imageURLs[index]
 
+        // 命中新缓存
         if let cached = preloadedImages[url] {
-            currentImage = cached; loadingError = nil; isLoading = false; resetForNewImage(cached); return
+            currentImage = cached; loadingError = nil; isLoading = false
+            resetForNewImage(cached)
+            return
         }
+
         isLoading = true; loadingError = nil; currentImage = nil
+        let token = UUID()
+        loadToken = token
+
         DispatchQueue.global(qos: .userInitiated).async {
             let (image, error) = loadImageWithError(url: url)
             DispatchQueue.main.async {
-                self.isLoading = false; self.currentImage = image; self.loadingError = error
-                if let img = image { resetForNewImage(img); preloadedImages[url] = img; touchPreloadOrder(url)}
+                // 只接受“最后一次”的结果
+                guard self.loadToken == token else { return }
+                self.isLoading = false
+                self.currentImage = image
+                self.loadingError = error
+                if let img = image {
+                    resetForNewImage(img)
+                    preloadedImages[url] = img
+                    touchPreloadOrder(url)
+                }
             }
         }
     }
 
-    // 替换 preloadAdjacentImages()
     private func preloadAdjacentImages() {
         guard let current = store.selection, !store.imageURLs.isEmpty else { return }
         let urls = store.imageURLs
@@ -283,13 +308,13 @@ struct Viewer: View {
     }
 
     private func isBigOnThisDesktop(_ img: NSImage) -> Bool {
-        guard let win = NSApp.keyWindow else { return false }
+        guard let win = currentWindow() else { return false }
         let natural = naturalPointSize(img)
         let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
     private func fittedContentSizeAccurate(for image: NSImage) -> CGSize {
-        guard let win = NSApp.keyWindow else { return naturalPointSize(image) }
+        guard let win = currentWindow() else { return naturalPointSize(image) }
 
         let base = naturalPointSize(image)
         // 最大 contentLayout 尺寸（无余量）
@@ -356,7 +381,7 @@ struct Viewer: View {
         return CGSize(width: floor(maxLayoutW), height: floor(maxLayoutH))
     }
     private func accurateFitScale(for image: NSImage) -> CGFloat {
-        guard let win = NSApp.keyWindow else { return 1 }
+        guard let win = currentWindow() else { return 1 }
         let base = naturalPointSize(image)
         var avail = maxContentLayoutSizeInVisibleFrame(win)
         let (vBar, hBar) = legacyScrollbarThickness()
@@ -510,13 +535,15 @@ struct ZoomableImage: View {
                 let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
                 onScaleChanged(Int(round(cs * 100)))
             }
-            .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) } }
+            .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
+                baseZoom = newZoom
+            }
             .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentW, height: contentH)) }
 
             view
                 .gesture(
                     MagnificationGesture()
-                        .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...4) }
+                        .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...5) }
                         .onEnded { _ in baseZoom = zoom }
                 )
         }
@@ -533,16 +560,12 @@ struct AnimatedImageView: NSViewRepresentable {
         return v
     }
     func updateNSView(_ v: NSImageView, context: Context) {
-        v.image = image
-        v.animates = true
+        if v.image !== image { v.image = image }
+        if v.animates == false { v.animates = true }
     }
 }
 
 // MARK: - Helpers
-private func windowVisibleFrame() -> CGRect {
-    (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-}
-
 private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
     let fitScale = min(maxW / baseW, maxH / baseH)
     return isFit ? fitScale : zoom
@@ -583,16 +606,6 @@ private func naturalPointSize(_ img: NSImage) -> CGSize {
 private func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFloat) {
     if NSScroller.preferredScrollerStyle == .overlay { return (0, 0) }
     let t = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy); return (vertical: t, horizontal: t)
-}
-
-private func fittedContentSize(for image: NSImage) -> CGSize {
-    let base = naturalPointSize(image)
-    let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
-    let padding: CGFloat = 0 //32
-    let maxW = max(vf.width - padding, 200)
-    let maxH = max(vf.height - padding, 200)
-    let scale = min(maxW / max(base.width, 1), maxH / max(base.height, 1))
-    return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
 
 private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
