@@ -94,7 +94,7 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var scalePercent: Int = 100
     @State private var fitMode: FitMode = .fitWindowToImage
-    private let zoomPresets: [CGFloat] = [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
+    private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
     @State private var windowWidth: CGFloat = 800
 
     var body: some View {
@@ -177,6 +177,8 @@ struct Viewer: View {
     @State private var loadingError: String? = nil
     @State private var isLoading: Bool = false
     @State private var preloadedImages: [URL: NSImage] = [:]
+    
+    
 
     var body: some View {
         if let index = store.selection, index < store.imageURLs.count {
@@ -219,7 +221,7 @@ struct Viewer: View {
                         }
                     }*/
                     .onChange(of: fitToScreen) { _, _ in
-                        if let img = currentImage { resizeOnceForCurrentFit(img) }
+                        if fitMode != .fitImageToWindow, let img = currentImage { resizeOnceForCurrentFit(img) }
                     }
                     .onChange(of: zoom) { _, newZoom in
                         if !fitToScreen && fitMode == .fitWindowToImage {
@@ -422,7 +424,9 @@ struct Viewer: View {
         let maxH = max(vf.height - padding, 200)
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
         onScaleChanged(Int(round(scale * 100)))
-        resizeOnceForCurrentFit(img)
+        if fitMode != .fitImageToWindow && !(fitMode == .fitOnlyBigToDesktop && isBigOnThisDesktop(img)) {
+            resizeOnceForCurrentFit(img)
+        }
     }
     private func targetSize(for img: NSImage) -> CGSize {
         if fitToScreen {
