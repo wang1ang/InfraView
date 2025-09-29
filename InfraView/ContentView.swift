@@ -94,6 +94,7 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var scalePercent: Int = 100
     @State private var fitMode: FitMode = .fitWindowToImage
+    @State private var toolbarWasVisible = true
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
 
     var body: some View {
@@ -114,6 +115,20 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
+            if let w = NSApp.keyWindow {
+                toolbarWasVisible = w.toolbar?.isVisible ?? true
+                w.toolbar?.isVisible = false
+                w.titleVisibility = .hidden
+                NSCursor.setHiddenUntilMouseMoves(true) // 鼠标静止时自动隐藏
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            if let w = NSApp.keyWindow {
+                w.toolbar?.isVisible = toolbarWasVisible
+                w.titleVisibility = .visible
+            }
+        }
     }
 
     var compactToolbar: some ToolbarContent {
@@ -515,7 +530,8 @@ struct ZoomableImage: View {
             let contentW = baseW * currentScale
             let contentH = baseH * currentScale
             
-            let eps: CGFloat = 0.5
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            let eps: CGFloat = 1.0 / scale
             let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
 
             let view = Group {
@@ -561,6 +577,7 @@ struct ZoomableImage: View {
                         .onEnded { _ in baseZoom = zoom }
                 )
         }
+        .background(Color.black)
     }
 }
 
