@@ -106,6 +106,7 @@ struct ContentView: View {
         .toolbar {
             compactToolbar
         }
+        .controlSize(.mini)
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.image, .webPCompat, .folder],
@@ -150,8 +151,6 @@ struct ContentView: View {
                         HStack { Text(mode.rawValue); Spacer(); if fitMode == mode { Image(systemName: "checkmark") } }
                     }
                 }
-                Divider()
-                Toggle(isOn: $fitToScreen) { Text("Manual Fit Toggle") }
             } label: { Image(systemName: fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") }
 
             Menu(content: {
