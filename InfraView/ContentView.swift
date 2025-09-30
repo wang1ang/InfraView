@@ -282,6 +282,12 @@ struct Viewer: View {
             .onChange(of: fitMode) { _, _ in if let img = currentImage {
                 resetForNewImage(img)
             } }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+                if let img = currentImage { resetForNewImage(img) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+                if let img = currentImage { resetForNewImage(img) }
+            }
         } else {
             Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
         }
