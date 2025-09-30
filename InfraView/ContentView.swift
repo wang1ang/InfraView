@@ -120,6 +120,10 @@ struct ContentView: View {
                 toolbarWasVisible = w.toolbar?.isVisible ?? true
                 w.toolbar?.isVisible = false
                 w.titleVisibility = .hidden
+                w.titlebarAppearsTransparent = true
+                if #available(macOS 11.0, *) {
+                    w.titlebarSeparatorStyle = .none
+                }
                 NSCursor.setHiddenUntilMouseMoves(true) // 鼠标静止时自动隐藏
             }
         }
@@ -127,6 +131,10 @@ struct ContentView: View {
             if let w = NSApp.keyWindow {
                 w.toolbar?.isVisible = toolbarWasVisible
                 w.titleVisibility = .visible
+                w.titlebarAppearsTransparent = false
+                if #available(macOS 11.0, *) {
+                    w.titlebarSeparatorStyle = .automatic
+                }
             }
         }
     }
