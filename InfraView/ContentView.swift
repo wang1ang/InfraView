@@ -37,8 +37,13 @@ final class ImageStore: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = parent
-        panel.message = "要浏览同目录的其它图片，请授权该文件夹访问。"
-        return panel.runModal() == .OK ? panel.urls.first : nil
+        panel.prompt = "允许"
+        panel.message = "为了浏览同目录的图片，请允许访问该文件夹（仅此一次）。"
+
+        // ✅ 同步阻塞直到用户操作完成
+        let resp = panel.runModal()
+        return (resp == .OK) ? panel.urls.first : nil
+
     }
     
     private enum BookmarkStore {
