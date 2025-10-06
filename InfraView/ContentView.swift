@@ -7,6 +7,7 @@ import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 import AppKit
+import ImageIO
 
 // MARK: - Model
 
@@ -106,7 +107,7 @@ struct ContentView: View {
         .toolbar {
             compactToolbar
         }
-        .controlSize(.mini)
+        //.controlSize(.mini)
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.image, .webPCompat, .folder],
@@ -160,7 +161,9 @@ struct ContentView: View {
 
             Button { previous() } label: { Image(systemName: "chevron.left") }.keyboardShortcut(.leftArrow, modifiers: [])
             Button { next() } label: { Image(systemName: "chevron.right") }.keyboardShortcut(.rightArrow, modifiers: [])
-            Button { deleteCurrent() } label: { Image(systemName: "trash") }.keyboardShortcut(.delete, modifiers: [])
+            Button { deleteCurrent() } label: { Image(systemName: "trash") }
+                .keyboardShortcut(.delete, modifiers: [])
+                .keyboardShortcut(.delete, modifiers: [.command])
         }
     }
 
@@ -615,15 +618,55 @@ private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGF
     return isFit ? fitScale : zoom
 }
 
+private func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, String?) {
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        return (nil, .zero, "无法创建图像源")
+    }
+
+    // 先取像素尺寸（不用创建整图，避免额外解码）
+    let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as NSDictionary?
+    let pxW = (props?[kCGImagePropertyPixelWidth] as? CGFloat) ?? 0
+    let pxH = (props?[kCGImagePropertyPixelHeight] as? CGFloat) ?? 0
+    let maxDim = Int(max(pxW, pxH))
+
+    // 用“缩略图”API但把目标尺寸设为原始最大边 + transform=true
+    // 好处：ImageIO 会自动应用 EXIF 方向，不需要我们手写矩阵
+    let opts: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxDim,
+        kCGImageSourceCreateThumbnailWithTransform: true, // ✅ 应用 EXIF 方向
+        kCGImageSourceShouldCache: false                  // 不提前缓存像素
+    ]
+
+    guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
+        return (nil, .zero, "不支持的图片格式")
+    }
+    // 注意：经方向修正后，像素宽高可能互换（例如 90° 旋转）
+    let outSize = CGSize(width: cg.width, height: cg.height)
+    return (cg, outSize, nil)
+}
+
 private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let access = url.startAccessingSecurityScopedResource()
     defer { if access { url.stopAccessingSecurityScopedResource() } }
+
     guard FileManager.default.fileExists(atPath: url.path) else { return (nil, "文件不存在") }
     guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, "文件无法读取") }
-    if let img = NSImage(contentsOf: url) { return (img, nil) }
-    do { let data = try Data(contentsOf: url, options: [.mappedIfSafe]); if let img = NSImage(data: data) { return (img, nil) } else { return (nil, "不支持的图片格式") } }
-    catch { return (nil, "读取文件失败: \(error.localizedDescription)") }
+
+    // 后台线程安全：先用 ImageIO 得到已修正方向的 CGImage + 像素尺寸
+    let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
+    guard let cg = cgOpt else { return (nil, err ?? "不支持的图片格式") }
+
+    // 为了和你现有 naturalPointSize/像素→点的逻辑一致，这里给 NSImage 设一个合理的 point 尺寸：
+    // 取屏幕 scale（Retina=2），用 像素/scale 作为点尺寸；这样不会“看起来变大/变小”
+    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+    let pointSize = NSSize(width: pixelSize.width / scale, height: pixelSize.height / scale)
+
+    // 这一步最好在主线程创建；如果此函数在后台调用，外层回到主线程再包 NSImage
+    let img = NSImage(cgImage: cg, size: pointSize)
+    return (img, nil)
 }
+
 
 private func displayScaleFactor() -> CGFloat {
     if let w = NSApp.keyWindow, let s = w.screen { return s.backingScaleFactor }
