@@ -252,6 +252,7 @@ struct ContentView: View {
             Button { deleteCurrent() } label: { Image(systemName: "trash") }
                 .keyboardShortcut(.delete, modifiers: [])
                 .keyboardShortcut(.delete, modifiers: [.command])
+                .keyboardShortcut(.deleteForward, modifiers: [])
         }
     }
 
