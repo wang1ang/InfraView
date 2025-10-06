@@ -23,7 +23,66 @@ final class ImageStore: ObservableObject {
     @Published var imageURLs: [URL] = []
     @Published var selection: Int? = nil
 
+    // ✅ 持有当前这一批“用户选中的入口”的作用域（文件或其父目录/文件夹）
+    private var heldSecurityScopedRoots: [URL] = []
+
+    private func releaseHeldScopes() {
+        for u in heldSecurityScopedRoots { u.stopAccessingSecurityScopedResource() }
+        heldSecurityScopedRoots.removeAll()
+    }
+
+    private func requestDirectoryScope(for parent: URL) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = parent
+        panel.message = "要浏览同目录的其它图片，请授权该文件夹访问。"
+        return panel.runModal() == .OK ? panel.urls.first : nil
+    }
+    
+    private enum BookmarkStore {
+        private static let defaultsKey = "ScopedBookmarks"
+
+        // 简单起见用路径字符串当 key（也可用 bookmark 的 resolved URL 的 standardized 路径）
+        static func save(url: URL) {
+            do {
+                let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+                var dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Data] ?? [:]
+                dict[url.path] = data
+                UserDefaults.standard.set(dict, forKey: defaultsKey)
+            } catch {
+                print("Save bookmark failed:", error)
+            }
+        }
+
+        static func resolve(matching parent: URL) -> URL? {
+            guard let dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Data] else { return nil }
+            // 直接按路径命中；也可以遍历所有书签，找与 parent 等价/祖先关系的目录
+            guard let data = dict[parent.path] else { return nil }
+            var stale = false
+            do {
+                let url = try URL(resolvingBookmarkData: data,
+                                  options: [.withSecurityScope, .withoutUI],
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale)
+                if stale {
+                    // 过期则重建
+                    try? FileManager.default.removeItem(at: url)
+                    return nil
+                }
+                return url
+            } catch {
+                print("Resolve bookmark failed:", error)
+                return nil
+            }
+        }
+    }
+    
     func load(urls: [URL]) {
+        // 每次用户重新选择前，释放上一批作用域
+        releaseHeldScopes()
+
         let fm = FileManager.default
         let exts: Set<String> = ["png","jpg","jpeg","gif","tiff","bmp","heic","webp"]
         var collected: [URL] = []
@@ -31,28 +90,50 @@ final class ImageStore: ObservableObject {
         var initialSelectionURL: URL? = nil
 
         if urls.count == 1, let first = urls.first {
-            let access = first.startAccessingSecurityScopedResource()
-            defer { if access { first.stopAccessingSecurityScopedResource() } }
+            // 至少保证这个文件可读
+            if first.startAccessingSecurityScopedResource() { heldSecurityScopedRoots.append(first) }
 
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: first.path, isDirectory: &isDir), !isDir.boolValue {
-                urlsToProcess = [first.deletingLastPathComponent()]
+                let parent = first.deletingLastPathComponent()
+
+                // 1) 先试图从书签恢复目录作用域（无 UI）
+                var grantedDir: URL? = BookmarkStore.resolve(matching: parent)
+                if grantedDir == nil {
+                    // 2) 恢复失败，再弹一次目录选择（仅第一次）
+                    grantedDir = requestDirectoryScope(for: parent)
+                    if let dir = grantedDir {
+                        BookmarkStore.save(url: dir)  // 持久化，下次就无需再弹
+                    }
+                }
+
+                // 如果我们最终拿到了目录作用域，就持有它并用来枚举
+                if let dir = grantedDir, dir.startAccessingSecurityScopedResource() {
+                    heldSecurityScopedRoots.append(dir)
+                    urlsToProcess = [dir]
+                } else {
+                    // 用户拒绝/未命中书签：只能浏览这一个文件
+                    urlsToProcess = [first]
+                }
                 initialSelectionURL = first
             }
         }
-
+        // ✅ 多选或选文件夹：对每个“入口”持有作用域直到下次 load
         for url in urlsToProcess {
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            if url.startAccessingSecurityScopedResource() { heldSecurityScopedRoots.append(url) }
 
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
                 do {
-                    let files = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
-                    for fileURL in files {
-                        let vals = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
-                        if vals?.isRegularFile == true && exts.contains(fileURL.pathExtension.lowercased()) {
-                            collected.append(fileURL)
+                    let files = try fm.contentsOfDirectory(
+                        at: url,
+                        includingPropertiesForKeys: [.isRegularFileKey],
+                        options: [.skipsHiddenFiles]
+                    )
+                    for f in files {
+                        let vals = try? f.resourceValues(forKeys: [.isRegularFileKey])
+                        if vals?.isRegularFile == true && exts.contains(f.pathExtension.lowercased()) {
+                            collected.append(f)
                         }
                     }
                 } catch {
@@ -85,6 +166,8 @@ final class ImageStore: ObservableObject {
         imageURLs.remove(at: index)
     }
 }
+
+
 
 // MARK: - ContentView
 
