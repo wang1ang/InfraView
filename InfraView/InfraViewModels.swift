@@ -252,7 +252,9 @@ final class ViewerViewModel: ObservableObject {
 
         case .fitWindowToImage:
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
-            return (scaledContentSize(for: img, scale: zoom), true, true)
+            let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
+            return (sz, true, false)
+            //return (scaledContentSize(for: img, scale: zoom), true, false)
 
         case .doNotFit:
             // 同上，但明确不自动调整：也给窗口一个合理大小（你也可以改为保持窗口不变）
@@ -264,5 +266,13 @@ final class ViewerViewModel: ObservableObject {
         let layout = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
         return natural.width > layout.width || natural.height > layout.height
     }
-
+    private func alignedScaledSizeToBacking(_ img: NSImage, scale: CGFloat, window: NSWindow) -> CGSize {
+        let base = naturalPointSize(img)
+        let w = base.width  * scale
+        let h = base.height * scale
+        let s = window.backingScaleFactor
+        // ZoomableImage 用的是 floor，所以这里也用 floor，避免窗口比内容“略大”
+        return CGSize(width: floor(w * s) / s,
+                      height: floor(h * s) / s)
+    }
 }
