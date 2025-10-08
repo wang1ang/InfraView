@@ -142,7 +142,7 @@ final class ViewerViewModel: ObservableObject {
     }
 
     // 统一驱动：新图 / 切换 Fit / 改 Zoom 都走这里
-    enum Reason { case newImage, fitToggle(Bool), zoom(CGFloat) }
+    enum Reason: Equatable { case newImage, fitToggle(Bool), zoom(CGFloat) }
 
     func drive(reason: Reason, mode: FitMode, window: NSWindow) {
         guard let img = currentImage else { return }
@@ -171,9 +171,23 @@ final class ViewerViewModel: ObservableObject {
 
         // 统一计算目标内容尺寸并调窗口（把所有模式分支写在一个地方）
         let (targetSize, shouldResize, aware) = desiredContentSize(for: img, mode: mode, window: window)
-        if shouldResize {
-            sizer.resizeWindow(toContent: targetSize, mode: aware ? mode : .fitOnlyBigToDesktop) // aware=false 时强制不感知滚动条
+        var doResize = shouldResize
+        if (mode == .fitImageToWindow || mode == .fitOnlyBigToWindow), reason != .newImage {
+            doResize = false
         }
+        if doResize {
+            sizer.resizeWindow(toContent: targetSize, mode: aware ? mode : .fitOnlyBigToDesktop)
+        }
+        // ✅ 2) .fitOnlyBigToDesktop 的第二步：回退到精确缩放（只在 newImage 时执行）
+        if mode == .fitOnlyBigToDesktop,
+           reason == .newImage,
+           sizer.isBigOnDesktop(img, window: window) {
+            let s = sizer.accurateFitScale(for: img, in: window)
+            fitToScreen = false
+            zoom = s
+            // 这里不用再 resize 了，保持刚刚收敛的窗口即可
+        }
+
         // 百分比回调
         let scale: CGFloat = fitToScreen ? sizer.accurateFitScale(for: img, in: window) : zoom
         onScaleChanged?(Int((scale * 100).rounded()))
