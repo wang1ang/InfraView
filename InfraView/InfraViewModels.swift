@@ -121,3 +121,109 @@ final class ImageStore: ObservableObject {
     }
 }
 
+// ===== ViewerViewModel.swift (append inside InfraViewModels.swift) =====
+@MainActor
+final class ViewerViewModel: ObservableObject {
+    @Published var zoom: CGFloat = 1
+    @Published var fitToScreen: Bool = false
+    @Published var currentImage: NSImage?
+    @Published var loadingError: String?
+
+    // scale 变化时回调（用于工具栏百分比显示）
+    var onScaleChanged: ((Int) -> Void)?
+
+    private let repo: ImageRepository
+    private let cache: ImageCache
+    private let preloader: ImagePreloader
+    private let sizer: WindowSizer
+
+    init(repo: ImageRepository, cache: ImageCache, preloader: ImagePreloader, sizer: WindowSizer) {
+        self.repo = repo
+        self.cache = cache
+        self.preloader = preloader
+        self.sizer = sizer
+    }
+
+    func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
+        guard urls.indices.contains(index) else { return }
+        let url = urls[index]
+
+        // 命中缓存
+        if let cached = cache.get(url) {
+            currentImage = cached
+            loadingError = nil
+            applyInitialFit(for: cached, mode: fitMode, window: window)
+        } else {
+            currentImage = nil
+            loadingError = nil
+            Task.detached(priority: .userInitiated) {
+                let result = try? self.repo.load(at: url)
+                await MainActor.run {
+                    if let (img, _) = result {
+                        self.currentImage = img
+                        self.cache.set(url, img)
+                        self.applyInitialFit(for: img, mode: fitMode, window: window)
+                    } else {
+                        self.loadingError = "Unsupported image format."
+                    }
+                }
+            }
+        }
+
+        // 预加载相邻
+        preloader.preload(adjacentOf: index, in: urls)
+    }
+
+    func handleZoomChanged(_ newZoom: CGFloat, window: NSWindow) {
+        zoom = newZoom
+        fitToScreen = false
+        notifyScale(window: window)
+    }
+
+    func handleFitToggled(_ newFit: Bool, window: NSWindow) {
+        fitToScreen = newFit
+        notifyScale(window: window)
+    }
+
+    // MARK: - Private
+    private func applyInitialFit(for img: NSImage, mode: FitMode, window: NSWindow) {
+        switch mode {
+        case .fitWindowToImage:
+            fitToScreen = false; zoom = 1
+
+        case .fitImageToWindow:
+            fitToScreen = true;  zoom = 1
+            sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
+
+        case .fitOnlyBigToWindow:
+            let big = sizer.isBigOnDesktop(img, window: window)
+            fitToScreen = big; zoom = 1
+            if big {
+                sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
+            }
+
+        case .fitOnlyBigToDesktop:
+            if sizer.isBigOnDesktop(img, window: window) {
+                // 先用 Fit 驱动一次窗口收敛
+                fitToScreen = true; zoom = 1
+                sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
+                // 再回退到“精确 scale”
+                let s = sizer.accurateFitScale(for: img, in: window)
+                fitToScreen = false; zoom = s
+            } else {
+                fitToScreen = false; zoom = 1
+            }
+
+        case .doNotFit:
+            fitToScreen = false; zoom = 1
+        }
+
+        notifyScale(window: window)
+    }
+
+    private func notifyScale(window: NSWindow) {
+        guard let img = currentImage else { return }
+        let scale: CGFloat = fitToScreen ? sizer.accurateFitScale(for: img, in: window) : zoom
+        onScaleChanged?(Int((scale * 100).rounded()))
+    }
+}
