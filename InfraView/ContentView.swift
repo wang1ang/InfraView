@@ -660,15 +660,6 @@ struct Placeholder: View {
     }
 }
 
-final class WindowZoomHelper: NSObject, NSWindowDelegate {
-    static let shared = WindowZoomHelper()
-    var pendingStandardFrame: NSRect?
-
-    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
-        if let f = pendingStandardFrame { return f }
-        return defaultFrame
-    }
-}
 // MARK: - Extensions
 
 extension UTType {

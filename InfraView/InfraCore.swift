@@ -1,7 +1,6 @@
 // InfraCore.swift
 import SwiftUI
 import AppKit
-import UniformTypeIdentifiers
 import ImageIO
 
 // MARK: - Model
@@ -95,6 +94,7 @@ final class ImageRepositoryImpl: ImageRepository {
 
 // MARK: - 轻量 LRU 缓存 + 预加载
 final class ImageCache {
+    // ⚠️ 约定：仅在主线程读写（调用方已在 MainActor 切回主线程）
     private var dict: [URL:NSImage] = [:]
     private var order: [URL] = []
     private let cap: Int
@@ -136,13 +136,13 @@ protocol WindowSizer {
     func resizeWindow(toContent size: CGSize, mode: FitMode)
 }
 
+@MainActor
 final class WindowSizerImpl: WindowSizer {
     func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize { /* 用你现有 fittedContentSizeAccurate */
-        guard let win = currentWindow() else { return naturalPointSize(image) }
 
         let base = naturalPointSize(image)
         // 最大 contentLayout 尺寸（无余量）
-        var avail = maxContentLayoutSizeInVisibleFrame(win)
+        var avail = maxContentLayoutSizeInVisibleFrame(window)
 
         // 估算 legacy 滚动条厚度
         let (vBar, hBar) = legacyScrollbarThickness()
@@ -176,9 +176,8 @@ final class WindowSizerImpl: WindowSizer {
 
     }
     func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat { /* 用你现有 accurateFitScale */
-        guard let win = currentWindow() else { return 1 }
         let base = naturalPointSize(image)
-        var avail = maxContentLayoutSizeInVisibleFrame(win)
+        var avail = maxContentLayoutSizeInVisibleFrame(window)
         let (vBar, hBar) = legacyScrollbarThickness()
         for _ in 0..<2 {
             let s = min(avail.width / max(base.width, 1),
@@ -196,9 +195,8 @@ final class WindowSizerImpl: WindowSizer {
                    avail.height / max(base.height, 1))
     }
     func isBigOnDesktop(_ img: NSImage, window: NSWindow) -> Bool { /* 用 isBigOnThisDesktop + maxContentLayoutSizeInVisibleFrame */
-        guard let win = currentWindow() else { return false }
         let natural = naturalPointSize(img)
-        let maxLayout = maxContentLayoutSizeInVisibleFrame(win)
+        let maxLayout = maxContentLayoutSizeInVisibleFrame(window)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
     func resizeWindow(toContent size: CGSize, mode: FitMode) { /* 用 resizeWindowToContentSize(scrollbarAware: mode != .fitOnlyBigToDesktop) */
@@ -254,6 +252,17 @@ final class WindowSizerImpl: WindowSizer {
 
 
 // MARK: - Helpers
+final class WindowZoomHelper: NSObject, NSWindowDelegate {
+    static let shared = WindowZoomHelper()
+    var pendingStandardFrame: NSRect?
+
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
+        if let f = pendingStandardFrame { return f }
+        return defaultFrame
+    }
+}
+
+@MainActor
 func displayScaleFactor() -> CGFloat {
     if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
        let s = w.screen { return s.backingScaleFactor }
@@ -290,6 +299,7 @@ func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))
 }
 
+@MainActor
 func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Bool = true) {
     guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
 
