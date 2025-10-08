@@ -307,6 +307,9 @@ struct ZoomableImage: View {
                 }
             }
             .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100))) }
+            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentWf, height: contentHf)) }
+            
+            // refresh displayed scale
             .onChange(of: fitToScreen) { _, newFit in
                 let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
                 onScaleChanged(Int(round(cs * 100)))
@@ -314,7 +317,16 @@ struct ZoomableImage: View {
             .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
                 baseZoom = newZoom
             }
-            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentWf, height: contentHf)) }
+            .onChange(of: proxy.size) { _, _ in
+                if fitToScreen {
+                    onScaleChanged(Int(round(currentScale * 100)))
+                }
+            }
+            .onChange(of: fitMode) { _, _ in
+                if fitToScreen {
+                    onScaleChanged(Int(round(currentScale * 100)))
+                }
+            }
 
             view
                 .gesture(
