@@ -37,8 +37,8 @@ final class ImageStore: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = parent
-        panel.prompt = "允许"
-        panel.message = "为了浏览同目录的图片，请允许访问该文件夹（仅此一次）。"
+        panel.prompt = "Allow"
+        panel.message = "To browse images in this folder, please grant one-time access to the folder."
 
         // ✅ 同步阻塞直到用户操作完成
         let resp = panel.runModal()
@@ -49,40 +49,59 @@ final class ImageStore: ObservableObject {
     private enum BookmarkStore {
         private static let defaultsKey = "ScopedBookmarks"
 
-        // 简单起见用路径字符串当 key（也可用 bookmark 的 resolved URL 的 standardized 路径）
         static func save(url: URL) {
             do {
-                let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+                let data = try url.bookmarkData(options: [.withSecurityScope],
+                                                includingResourceValuesForKeys: nil,
+                                                relativeTo: nil)
                 var dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Data] ?? [:]
-                dict[url.path] = data
+                let key = url.standardizedFileURL.path
+                dict[key] = data
                 UserDefaults.standard.set(dict, forKey: defaultsKey)
             } catch {
                 print("Save bookmark failed:", error)
             }
         }
 
+        /// 尝试命中精确目录；否则做“最长祖先目录”的匹配
         static func resolve(matching parent: URL) -> URL? {
-            guard let dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Data] else { return nil }
-            // 直接按路径命中；也可以遍历所有书签，找与 parent 等价/祖先关系的目录
-            guard let data = dict[parent.path] else { return nil }
-            var stale = false
-            do {
-                let url = try URL(resolvingBookmarkData: data,
-                                  options: [.withSecurityScope, .withoutUI],
-                                  relativeTo: nil,
-                                  bookmarkDataIsStale: &stale)
-                if stale {
-                    // 过期则重建
-                    try? FileManager.default.removeItem(at: url)
-                    return nil
-                }
-                return url
-            } catch {
-                print("Resolve bookmark failed:", error)
+            guard let dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Data] else {
                 return nil
             }
+            let parentPath = parent.standardizedFileURL.path
+
+            // 1) 精确命中
+            if let exact = dict[parentPath] {
+                var stale = false
+                if let u = try? URL(resolvingBookmarkData: exact,
+                                    options: [.withSecurityScope, .withoutUI],
+                                    relativeTo: nil,
+                                    bookmarkDataIsStale: &stale),
+                   !stale {
+                    return u
+                }
+            }
+
+            // 2) 祖先匹配（优先更长的祖先路径）
+            let sorted = dict.keys.sorted { $0.count > $1.count }
+            for k in sorted {
+                if parentPath == k || parentPath.hasPrefix(k + "/") {
+                    if let data = dict[k] {
+                        var stale = false
+                        if let u = try? URL(resolvingBookmarkData: data,
+                                            options: [.withSecurityScope, .withoutUI],
+                                            relativeTo: nil,
+                                            bookmarkDataIsStale: &stale),
+                           !stale {
+                            return u
+                        }
+                    }
+                }
+            }
+            return nil
         }
     }
+
     
     func load(urls: [URL]) {
         // 每次用户重新选择前，释放上一批作用域
@@ -115,7 +134,7 @@ final class ImageStore: ObservableObject {
                 // 如果我们最终拿到了目录作用域，就持有它并用来枚举
                 if let dir = grantedDir, dir.startAccessingSecurityScopedResource() {
                     heldSecurityScopedRoots.append(dir)
-                    urlsToProcess = [dir]
+                    urlsToProcess = [parent]
                 } else {
                     // 用户拒绝/未命中书签：只能浏览这一个文件
                     urlsToProcess = [first]
@@ -709,7 +728,7 @@ private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGF
 
 private func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, String?) {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-        return (nil, .zero, "无法创建图像源")
+        return (nil, .zero, "Unable to create image source.")
     }
 
     // 先取像素尺寸（不用创建整图，避免额外解码）
@@ -728,7 +747,7 @@ private func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, 
     ]
 
     guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
-        return (nil, .zero, "不支持的图片格式")
+        return (nil, .zero, "Unsupported image format.")
     }
     // 注意：经方向修正后，像素宽高可能互换（例如 90° 旋转）
     let outSize = CGSize(width: cg.width, height: cg.height)
@@ -739,12 +758,12 @@ private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let access = url.startAccessingSecurityScopedResource()
     defer { if access { url.stopAccessingSecurityScopedResource() } }
 
-    guard FileManager.default.fileExists(atPath: url.path) else { return (nil, "文件不存在") }
-    guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, "文件无法读取") }
+    guard FileManager.default.fileExists(atPath: url.path) else { return (nil, "File does not exist.") }
+    guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, "File cannot be read.") }
 
     // 后台线程安全：先用 ImageIO 得到已修正方向的 CGImage + 像素尺寸
     let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
-    guard let cg = cgOpt else { return (nil, err ?? "不支持的图片格式") }
+    guard let cg = cgOpt else { return (nil, err ?? "Unsupported image format.") }
 
     // 为了和你现有 naturalPointSize/像素→点的逻辑一致，这里给 NSImage 设一个合理的 point 尺寸：
     // 取屏幕 scale（Retina=2），用 像素/scale 作为点尺寸；这样不会“看起来变大/变小”
