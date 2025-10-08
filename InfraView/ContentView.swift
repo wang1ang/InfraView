@@ -18,7 +18,7 @@ enum FitMode: String, CaseIterable {
     case fitOnlyBigToDesktop = "Fit only big images to desktop"
     case doNotFit = "Do not fit anything"
 }
-
+@MainActor
 final class ImageStore: ObservableObject {
     @Published var imageURLs: [URL] = []
     @Published var selection: Int? = nil
@@ -246,6 +246,51 @@ struct ContentView: View {
                 }
             }
         }
+        .onDrop(of: [UTType.fileURL, .image], isTargeted: nil) { providers in
+            // 如果什么都处理不了，返回 false，避免吞掉事件
+            let canHandle = providers.contains {
+                $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) ||
+                $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+            }
+            guard canHandle else { return false }
+            
+            Task.detached(priority: .userInitiated) {
+                var urls: [URL] = []
+                
+                // 逐个 provider 解包（可能返回 URL / NSURL / Data）
+                for p in providers {
+                    if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                        if let url = await loadItemURL(provider: p, type: UTType.fileURL) {
+                            urls.append(url)
+                            continue
+                        }
+                    }
+                    if p.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                        if let url = await loadItemURL(provider: p, type: .image) {
+                            urls.append(url)
+                        }
+                    }
+                }
+                
+                guard !urls.isEmpty else { return }
+                // ⬇️⬇️⬇️ 关键：回到主线程调用 store.load
+                await MainActor.run {
+                    // ① 激活 App（把它带到前台）
+                    NSApp.activate(ignoringOtherApps: true)
+
+                    // ② 让当前可见窗口成为 key & 置前
+                    if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                        win.makeKeyAndOrderFront(nil)
+                    }
+
+                    // ③ 再去加载（会触发你的 resetForNewImage → 自适应尺寸）
+                    store.load(urls: urls)
+                }
+
+            }
+            
+            return true
+        }
     }
 
     var compactToolbar: some ToolbarContent {
@@ -403,6 +448,17 @@ struct Viewer: View {
         }
     }
 
+    private func loadCGForURL(_ url: URL) -> (CGImage?, CGSize, String?) {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+
+        guard FileManager.default.fileExists(atPath: url.path) else { return (nil, .zero, "File does not exist.") }
+        guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, .zero, "File cannot be read.") }
+
+        let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
+        return (cgOpt, pixelSize, err)
+    }
+
     @State private var loadToken: UUID = .init()
     private func loadImageForSelection() {
         guard let index = store.selection, index < store.imageURLs.count else {
@@ -417,26 +473,42 @@ struct Viewer: View {
             return
         }
 
-        isLoading = true; loadingError = nil; currentImage = nil
+        isLoading = true
+        loadingError = nil
+        currentImage = nil
         let token = UUID()
         loadToken = token
 
+        // 后台：只做一次 CGImage 解码（带安全作用域）
         DispatchQueue.global(qos: .userInitiated).async {
-            let (image, error) = loadImageWithError(url: url)
+            let (cgOpt, pixelSize, err) = loadCGForURL(url)
+
+            // 主线程：根据当前屏幕 scale 计算 pointSize，创建 NSImage，并更新 UI
             DispatchQueue.main.async {
-                // 只接受“最后一次”的结果
                 guard self.loadToken == token else { return }
                 self.isLoading = false
-                self.currentImage = image
-                self.loadingError = error
-                if let img = image {
-                    resetForNewImage(img)
-                    preloadedImages[url] = img
-                    touchPreloadOrder(url)
+
+                guard let cg = cgOpt else {
+                    self.currentImage = nil
+                    self.loadingError = err ?? "Unsupported image format."
+                    return
                 }
+
+                // 在主线程获取 scale 更稳（涉及 NSApp/NSScreen）
+                let scale = displayScaleFactor()
+                let pointSize = NSSize(width: pixelSize.width / scale,
+                                       height: pixelSize.height / scale)
+
+                let img = NSImage(cgImage: cg, size: pointSize)
+                self.currentImage = img
+                self.loadingError = nil
+                self.resetForNewImage(img)
+                self.preloadedImages[url] = img
+                self.touchPreloadOrder(url)
             }
         }
     }
+
 
     private func preloadAdjacentImages() {
         guard let current = store.selection, !store.imageURLs.isEmpty else { return }
@@ -448,12 +520,16 @@ struct Viewer: View {
 
         for u in candidates where preloadedImages[u] == nil {
             DispatchQueue.global(qos: .background).async {
-                let (image, _) = loadImageWithError(url: u)
-                if let image {
-                    DispatchQueue.main.async {
-                        preloadedImages[u] = image
-                        touchPreloadOrder(u) // LRU 维护
-                    }
+                let (cgOpt, pixelSize, _) = loadCGForURL(u)
+                guard let cg = cgOpt else { return }
+                DispatchQueue.main.async {
+                    // 主线程计算 scale & 创建 NSImage
+                    let scale = displayScaleFactor()
+                    let pointSize = NSSize(width: pixelSize.width / scale,
+                                           height: pixelSize.height / scale)
+                    let img = NSImage(cgImage: cg, size: pointSize)
+                    preloadedImages[u] = img
+                    touchPreloadOrder(u) // LRU 维护（主线程）
                 }
             }
         }
@@ -753,7 +829,7 @@ private func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, 
     let outSize = CGSize(width: cg.width, height: cg.height)
     return (cg, outSize, nil)
 }
-
+/*
 private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let access = url.startAccessingSecurityScopedResource()
     defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -774,7 +850,7 @@ private func loadImageWithError(url: URL) -> (NSImage?, String?) {
     let img = NSImage(cgImage: cg, size: pointSize)
     return (img, nil)
 }
-
+*/
 
 private func displayScaleFactor() -> CGFloat {
     if let w = NSApp.keyWindow, let s = w.screen { return s.backingScaleFactor }
@@ -812,7 +888,7 @@ private func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
 }
 
 private func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Bool = true) {
-    guard let window = NSApp.keyWindow else { return }
+    guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
 
     // ✅ 关键补丁：先确保窗口不是 zoomed / fullScreen
     if window.styleMask.contains(.fullScreen) { return }      // 全屏下不处理
@@ -935,3 +1011,28 @@ extension Notification.Name {
 }
 
 
+// 小工具：把 NSItemProvider 的 loadItem 包成 async
+func loadItemURL(provider: NSItemProvider, type: UTType) async -> URL? {
+    await withCheckedContinuation { cont in
+        provider.loadItem(forTypeIdentifier: type.identifier, options: nil) { item, _ in
+            if let url = item as? URL {
+                cont.resume(returning: url)
+            } else if let nsurl = item as? NSURL, let u = nsurl as URL? {
+                cont.resume(returning: u)
+            } else if let data = item as? Data {
+                // 有些来源给 Data（bookmark/图像数据）；尝试还原或落地临时文件
+                if let bookmarkURL = URL(dataRepresentation: data, relativeTo: nil) {
+                    cont.resume(returning: bookmarkURL)
+                } else {
+                    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent(UUID().uuidString)
+                        .appendingPathExtension("png")
+                    try? data.write(to: tmp)
+                    cont.resume(returning: tmp)
+                }
+            } else {
+                cont.resume(returning: nil)
+            }
+        }
+    }
+}
