@@ -121,15 +121,15 @@ final class ImageStore: ObservableObject {
     }
 }
 
-// ===== ViewerViewModel.swift (append inside InfraViewModels.swift) =====
+// ===== ViewerViewModel.swift =====
+// InfraViewModels.swift
+
 @MainActor
 final class ViewerViewModel: ObservableObject {
     @Published var zoom: CGFloat = 1
-    @Published var fitToScreen: Bool = false
+    @Published var fitToScreen = false
     @Published var currentImage: NSImage?
     @Published var loadingError: String?
-
-    // scale 变化时回调（用于工具栏百分比显示）
     var onScaleChanged: ((Int) -> Void)?
 
     private let repo: ImageRepository
@@ -138,92 +138,111 @@ final class ViewerViewModel: ObservableObject {
     private let sizer: WindowSizer
 
     init(repo: ImageRepository, cache: ImageCache, preloader: ImagePreloader, sizer: WindowSizer) {
-        self.repo = repo
-        self.cache = cache
-        self.preloader = preloader
-        self.sizer = sizer
+        self.repo = repo; self.cache = cache; self.preloader = preloader; self.sizer = sizer
     }
 
+    // 统一驱动：新图 / 切换 Fit / 改 Zoom 都走这里
+    enum Reason { case newImage, fitToggle(Bool), zoom(CGFloat) }
+
+    func drive(reason: Reason, mode: FitMode, window: NSWindow) {
+        guard let img = currentImage else { return }
+        switch reason {
+        case .newImage:
+            // 初始状态
+            switch mode {
+            case .fitWindowToImage:   fitToScreen = false; zoom = 1
+            case .fitImageToWindow:   fitToScreen = true;  zoom = 1
+            case .fitOnlyBigToWindow: fitToScreen = sizer.isBigOnDesktop(img, window: window); zoom = 1
+            case .fitOnlyBigToDesktop:
+                if sizer.isBigOnDesktop(img, window: window) {
+                    fitToScreen = true; zoom = 1
+                } else { fitToScreen = false; zoom = 1 }
+            case .doNotFit:           fitToScreen = false; zoom = 1
+            }
+
+        case .fitToggle(let on):
+            fitToScreen = on
+            if on { zoom = 1 } // 进入 fit 模式时，zoom 统一到 1
+
+        case .zoom(let v):
+            fitToScreen = false
+            zoom = clamp(v, 0.25...5)
+        }
+
+        // 统一计算目标内容尺寸并调窗口（把所有模式分支写在一个地方）
+        let (targetSize, shouldResize, aware) = desiredContentSize(for: img, mode: mode, window: window)
+        if shouldResize {
+            sizer.resizeWindow(toContent: targetSize, mode: aware ? mode : .fitOnlyBigToDesktop) // aware=false 时强制不感知滚动条
+        }
+        // 百分比回调
+        let scale: CGFloat = fitToScreen ? sizer.accurateFitScale(for: img, in: window) : zoom
+        onScaleChanged?(Int((scale * 100).rounded()))
+    }
+
+    // 载入/切图：只负责拿图，其余交给 drive(.newImage)
     func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
         guard urls.indices.contains(index) else { return }
         let url = urls[index]
-
-        // 命中缓存
         if let cached = cache.get(url) {
-            currentImage = cached
-            loadingError = nil
-            applyInitialFit(for: cached, mode: fitMode, window: window)
+            currentImage = cached; loadingError = nil
+            drive(reason: .newImage, mode: fitMode, window: window)
         } else {
-            currentImage = nil
-            loadingError = nil
+            currentImage = nil; loadingError = nil
             Task.detached(priority: .userInitiated) {
                 let result = try? self.repo.load(at: url)
                 await MainActor.run {
                     if let (img, _) = result {
                         self.currentImage = img
                         self.cache.set(url, img)
-                        self.applyInitialFit(for: img, mode: fitMode, window: window)
+                        self.drive(reason: .newImage, mode: fitMode, window: window)
                     } else {
                         self.loadingError = "Unsupported image format."
                     }
                 }
             }
         }
-
-        // 预加载相邻
         preloader.preload(adjacentOf: index, in: urls)
     }
 
-    func handleZoomChanged(_ newZoom: CGFloat, window: NSWindow) {
-        zoom = newZoom
-        fitToScreen = false
-        notifyScale(window: window)
-    }
-
-    func handleFitToggled(_ newFit: Bool, window: NSWindow) {
-        fitToScreen = newFit
-        notifyScale(window: window)
-    }
-
-    // MARK: - Private
-    private func applyInitialFit(for img: NSImage, mode: FitMode, window: NSWindow) {
+    // 统一把“要多大”和“是否滚动条感知”算出来
+    private func desiredContentSize(for img: NSImage, mode: FitMode, window: NSWindow) -> (CGSize, Bool, Bool) {
+        // (targetSize, shouldResizeWindow, scrollbarAware
         switch mode {
-        case .fitWindowToImage:
-            fitToScreen = false; zoom = 1
-
         case .fitImageToWindow:
-            fitToScreen = true;  zoom = 1
-            sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
+            return (sizer.fittedContentSize(for: img, in: window), false, true)
 
         case .fitOnlyBigToWindow:
-            let big = sizer.isBigOnDesktop(img, window: window)
-            fitToScreen = big; zoom = 1
-            if big {
-                sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
+            if sizer.isBigOnDesktop(img, window: window) {
+                return (sizer.fittedContentSize(for: img, in: window), false, true)
+            } else {
+                // 小图 → 用 1x 大小（带屏幕上限）
+                return (scaledContentSize(for: img, scale: 1), false, true)
             }
 
         case .fitOnlyBigToDesktop:
             if sizer.isBigOnDesktop(img, window: window) {
-                // 先用 Fit 驱动一次窗口收敛
-                fitToScreen = true; zoom = 1
-                sizer.resizeWindow(toContent: sizer.fittedContentSize(for: img, in: window), mode: mode)
-                // 再回退到“精确 scale”
-                let s = sizer.accurateFitScale(for: img, in: window)
-                fitToScreen = false; zoom = s
+                if fitToScreen {
+                    // 先 fit 驱动窗口收敛，再回退精确比例
+                    let fitSz = sizer.fittedContentSize(for: img, in: window)
+                    // 返回 aware=true 让 sizer 计算滚动条
+                    // 回调后 drive() 已将 zoom=1；之后用户操作会再触发
+                    return (fitSz, true, true)
+                } else {
+                    // 回退后的精确缩放：用 accurateScale 算内容大小
+                    let s = sizer.accurateFitScale(for: img, in: window)
+                    return (scaledContentSize(for: img, scale: s), false, false) // 不需要滚动条回退补偿
+                }
             } else {
-                fitToScreen = false; zoom = 1
+                return (scaledContentSize(for: img, scale: 1), false, false)
             }
 
+        case .fitWindowToImage:
+            // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
+            return (scaledContentSize(for: img, scale: zoom), true, true)
+
         case .doNotFit:
-            fitToScreen = false; zoom = 1
+            // 同上，但明确不自动调整：也给窗口一个合理大小（你也可以改为保持窗口不变）
+            return (scaledContentSize(for: img, scale: zoom), false, true)
         }
-
-        notifyScale(window: window)
-    }
-
-    private func notifyScale(window: NSWindow) {
-        guard let img = currentImage else { return }
-        let scale: CGFloat = fitToScreen ? sizer.accurateFitScale(for: img, in: window) : zoom
-        onScaleChanged?(Int((scale * 100).rounded()))
     }
 }
