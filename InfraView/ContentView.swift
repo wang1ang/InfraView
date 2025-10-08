@@ -266,8 +266,9 @@ struct ZoomableImage: View {
             let naturalPt = naturalPointSize(image)
             let baseW = max(naturalPt.width, 1)
             let baseH = max(naturalPt.height, 1)
-            let fitScale = min(maxW / baseW, maxH / baseH)
-            let currentScale: CGFloat = fitToScreen ? fitScale : zoom
+            let fitScaleRaw = min(maxW / baseW, maxH / baseH)
+            let effectiveFitScale = (fitMode == .fitOnlyBigToWindow) ? min(fitScaleRaw, 1) : fitScaleRaw
+            let currentScale: CGFloat = fitToScreen ? effectiveFitScale : zoom
 
             let contentW = baseW * currentScale
             let contentH = baseH * currentScale
