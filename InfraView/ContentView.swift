@@ -448,17 +448,6 @@ struct Viewer: View {
         }
     }
 
-    private func loadCGForURL(_ url: URL) -> (CGImage?, CGSize, String?) {
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
-
-        guard FileManager.default.fileExists(atPath: url.path) else { return (nil, .zero, "File does not exist.") }
-        guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, .zero, "File cannot be read.") }
-
-        let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
-        return (cgOpt, pixelSize, err)
-    }
-
     @State private var loadToken: UUID = .init()
     private func loadImageForSelection() {
         guard let index = store.selection, index < store.imageURLs.count else {
@@ -668,6 +657,11 @@ struct Viewer: View {
         let scale = computeScale(isFit: fitToScreen, baseW: naturalSize.width, baseH: naturalSize.height, maxW: maxW, maxH: maxH, zoom: zoom)
         onScaleChanged(Int(round(scale * 100)))
         maybeResizeWindow(for: img)
+        // 拖拽/激活时窗口状态可能在下一轮 runloop 才稳定，补一次重试
+        /*
+        DispatchQueue.main.async {
+            maybeResizeWindow(for: img)
+        }*/
     }
     private func targetSize(for img: NSImage) -> CGSize {
         if fitToScreen {
@@ -730,6 +724,9 @@ struct ZoomableImage: View {
             let contentW = baseW * currentScale
             let contentH = baseH * currentScale
             
+            let contentWf = floor(contentW)
+            let contentHf = floor(contentH)
+            
             let scale = NSScreen.main?.backingScaleFactor ?? 2.0
             let eps: CGFloat = 1.0 / scale
             let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
@@ -739,23 +736,23 @@ struct ZoomableImage: View {
                     ScrollView([.horizontal, .vertical]) {
                         if isAnimated(image){
                             AnimatedImageView(image: image)
-                                .frame(width: contentW, height: contentH)
+                                .frame(width: contentWf, height: contentHf)
                         } else {
                             Image(nsImage: image)
                                 .resizable()
                                 .interpolation(.high)
-                                .frame(width: contentW, height: contentH)
+                                .frame(width: contentWf, height: contentHf)
                         }
                     }
                 } else {
                     if isAnimated(image) {
                         AnimatedImageView(image: image)
-                            .frame(width: contentW, height: contentH)
+                            .frame(width: contentWf, height: contentHf)
                     } else {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
-                            .frame(width: contentW, height: contentH)
+                            .frame(width: contentWf, height: contentHf)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
@@ -768,7 +765,7 @@ struct ZoomableImage: View {
             .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
                 baseZoom = newZoom
             }
-            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentW, height: contentH)) }
+            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentWf, height: contentHf)) }
 
             view
                 .gesture(
@@ -853,7 +850,8 @@ private func loadImageWithError(url: URL) -> (NSImage?, String?) {
 */
 
 private func displayScaleFactor() -> CGFloat {
-    if let w = NSApp.keyWindow, let s = w.screen { return s.backingScaleFactor }
+    if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
+       let s = w.screen { return s.backingScaleFactor }
     return NSScreen.main?.backingScaleFactor ?? 2.0
 }
 
@@ -1020,19 +1018,43 @@ func loadItemURL(provider: NSItemProvider, type: UTType) async -> URL? {
             } else if let nsurl = item as? NSURL, let u = nsurl as URL? {
                 cont.resume(returning: u)
             } else if let data = item as? Data {
-                // 有些来源给 Data（bookmark/图像数据）；尝试还原或落地临时文件
-                if let bookmarkURL = URL(dataRepresentation: data, relativeTo: nil) {
-                    cont.resume(returning: bookmarkURL)
-                } else {
+                var stale = false
+                if let u = try? URL(resolvingBookmarkData: data,
+                                    options: [.withSecurityScope, .withoutUI],
+                                    relativeTo: nil,
+                                    bookmarkDataIsStale: &stale),
+                   !stale {
+                    cont.resume(returning: u)
+                } else if type.conforms(to: .image) {
+                    // ✅ 为常见图片类型兜底扩展名，避免用到 "img"
+                    let ext: String = {
+                        if let e = type.preferredFilenameExtension { return e }
+                        if type.conforms(to: .png)  { return "png" }
+                        if type.conforms(to: .jpeg) { return "jpg" }
+                        if type.conforms(to: .tiff) { return "tiff" }
+                        if type.conforms(to: .gif)  { return "gif" }
+                        if type.conforms(to: .heic) { return "heic" }
+                        if let webp = UTType("public.webp"), type.conforms(to: webp) { return "webp" }
+                        return "img"
+                    }()
                     let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
                         .appendingPathComponent(UUID().uuidString)
-                        .appendingPathExtension("png")
+                        .appendingPathExtension(ext)
                     try? data.write(to: tmp)
                     cont.resume(returning: tmp)
+                } else {
+                    cont.resume(returning: nil)
                 }
-            } else {
-                cont.resume(returning: nil)
-            }
-        }
+            }        }
     }
+}
+private func loadCGForURL(_ url: URL) -> (CGImage?, CGSize, String?) {
+    let access = url.startAccessingSecurityScopedResource()
+    defer { if access { url.stopAccessingSecurityScopedResource() } }
+
+    guard FileManager.default.fileExists(atPath: url.path) else { return (nil, .zero, "File does not exist.") }
+    guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, .zero, "File cannot be read.") }
+
+    let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
+    return (cgOpt, pixelSize, err)
 }
