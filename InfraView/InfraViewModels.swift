@@ -152,7 +152,7 @@ final class ViewerViewModel: ObservableObject {
             switch mode {
             case .fitWindowToImage:   fitToScreen = false; zoom = 1
             case .fitImageToWindow:   fitToScreen = true;  zoom = 1
-            case .fitOnlyBigToWindow: fitToScreen = sizer.isBigOnDesktop(img, window: window); zoom = 1
+            case .fitOnlyBigToWindow: fitToScreen = isBigInCurrentWindow(img, window: window); zoom = 1
             case .fitOnlyBigToDesktop:
                 if sizer.isBigOnDesktop(img, window: window) {
                     fitToScreen = true; zoom = 1
@@ -226,7 +226,7 @@ final class ViewerViewModel: ObservableObject {
             return (sizer.fittedContentSize(for: img, in: window), false, true)
 
         case .fitOnlyBigToWindow:
-            if sizer.isBigOnDesktop(img, window: window) {
+            if isBigInCurrentWindow(img, window: window) {
                 return (sizer.fittedContentSize(for: img, in: window), false, true)
             } else {
                 // 小图 → 用 1x 大小（带屏幕上限）
@@ -247,7 +247,7 @@ final class ViewerViewModel: ObservableObject {
                     return (scaledContentSize(for: img, scale: s), false, false) // 不需要滚动条回退补偿
                 }
             } else {
-                return (scaledContentSize(for: img, scale: 1), false, false)
+                return (scaledContentSize(for: img, scale: 1), true, false)
             }
 
         case .fitWindowToImage:
@@ -259,4 +259,10 @@ final class ViewerViewModel: ObservableObject {
             return (scaledContentSize(for: img, scale: zoom), false, true)
         }
     }
+    private func isBigInCurrentWindow(_ img: NSImage, window: NSWindow) -> Bool {
+        let natural = naturalPointSize(img)
+        let layout = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
+        return natural.width > layout.width || natural.height > layout.height
+    }
+
 }
