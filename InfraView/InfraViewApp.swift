@@ -10,11 +10,12 @@ import SwiftUI
 @main
 struct InfraViewApp: App {
     init() {
-        bindDeleteShortcut()
+        bindDeleteToCommandBackspace()
     }
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
+        //.windowStyle(.titleBar)
     }
 }

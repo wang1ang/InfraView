@@ -18,10 +18,11 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var showDeleteConfirm = false
     @State private var scalePercent: Int = 100
-    @State private var fitMode: FitMode = .fitWindowToImage
+    //@State private var fitMode: FitMode = .fitWindowToImage
     @State private var toolbarWasVisible = true
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
 
+    @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
     private var currentURL: URL? {
         guard let i = store.selection, store.imageURLs.indices.contains(i) else { return nil }
         return store.imageURLs[i]

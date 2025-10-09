@@ -56,9 +56,10 @@ struct InstallDeleteResponder: NSViewRepresentable {
 
 // 绑定系统 Edit > Delete 的快捷键（只保留一个）
 @objc protocol DeleteAction {func delete(_ sender: Any?)} // 只为拿到 #selector(delete:)
-func bindDeleteShortcut() {
+
+func bindDeleteToCommandBackspace() {
     //let deleteSel = Selector(("delete:"))
-    let deleteSel = #selector(DeleteAction.delete)
+    let deleteSel = #selector(DeleteAction.delete(_:))
 
     func apply() {
         guard
