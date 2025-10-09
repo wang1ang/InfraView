@@ -48,6 +48,14 @@ struct ContentView: View {
                 scalePercent = p
             }
         }
+        .background(
+            InstallDeleteResponder {
+                requestDelete()
+            }
+        )
+        .onDeleteCommand {
+            requestDelete()
+        }
         .toolbar { compactToolbar }
         .fileImporter(
             isPresented: $showImporter,
@@ -112,10 +120,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraDelete)) { _ in
             requestDelete()
-        }/*
-        .onDeleteCommand {
-            requestDelete()
-        }*/
+        }
     }
 
     // 工具栏绑定改到 viewerVM
@@ -144,6 +149,7 @@ struct ContentView: View {
             Button { next() } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Button { requestDelete() } label: { Image(systemName: "trash") }
+                .keyboardShortcut(.delete, modifiers: [])
         }
     }
 

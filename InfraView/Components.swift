@@ -1,9 +1,10 @@
 import SwiftUI
 
+
 struct CheckerboardBackground: View {
     var cell: CGFloat = 12
-    var c1: Color = Color(NSColor.windowBackgroundColor)
-    var c2: Color = Color.white.opacity(0.5)
+    var c1: Color = Color(NSColor.windowBackgroundColor) // white
+    var c2: Color = Color.white.opacity(0.5) // gray
 
     var body: some View {
         GeometryReader { geo in

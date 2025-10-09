@@ -9,25 +9,12 @@ import SwiftUI
 
 @main
 struct InfraViewApp: App {
+    init() {
+        bindDeleteShortcut()
+    }
     var body: some Scene {
         WindowGroup {
             ContentView()
-        }
-        .commands {
-            CommandMenu("Edit") {
-                Button("Move to Trash") {
-                    NotificationCenter.default.post(name: .infraDelete, object: nil)
-                }
-                .keyboardShortcut(.delete, modifiers: [])
-                Button("Move to Trash") {
-                    NotificationCenter.default.post(name: .infraDelete, object: nil)
-                }
-                .keyboardShortcut(.deleteForward, modifiers: [])
-                Button("Move to Trash") {
-                    NotificationCenter.default.post(name: .infraDelete, object: nil)
-                }
-                .keyboardShortcut(.delete, modifiers: [.command])
-            }
         }
     }
 }
