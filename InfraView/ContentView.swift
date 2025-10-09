@@ -122,6 +122,10 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .infraDelete)) { _ in
             requestDelete()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
+            let q = (note.object as? Int) ?? 0
+            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q)
+        }
     }
 
     // 工具栏绑定改到 viewerVM
@@ -448,8 +452,7 @@ extension Notification.Name {
     static let infraNext = Notification.Name("InfraView.Next")
     static let infraPrev = Notification.Name("InfraView.Prev")
     static let infraDelete = Notification.Name("InfraView.Delete")
-    static let InfraLeft = Notification.Name("InfraView.Left")
-    static let InfraRight = Notification.Name("InfraView.Right")
+    static let infraRotate = Notification.Name("InfraView.Rotate")
 }
 
 

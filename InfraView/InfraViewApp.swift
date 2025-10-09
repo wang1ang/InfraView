@@ -18,6 +18,18 @@ struct InfraViewApp: App {
             ContentView()
         }
         //.windowStyle(.titleBar)
+        .commands {
+            CommandGroup(after: .sidebar) {
+                Button("Rotate Left") {
+                    NotificationCenter.default.post(name: .infraRotate, object: -1)
+                }
+                .keyboardShortcut("L", modifiers: [])
+                Button("Rotate Right") {
+                    NotificationCenter.default.post(name: .infraRotate, object: 1)
+                }
+                .keyboardShortcut("R", modifiers: [])
+            }
+        }
     }
 }
 

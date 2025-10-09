@@ -275,4 +275,13 @@ final class ViewerViewModel: ObservableObject {
         return CGSize(width: floor(w * s) / s,
                       height: floor(h * s) / s)
     }
+    
+    func rotateCurrentImage(fitMode: FitMode, by q: Int) {
+        guard let img = currentImage else { return }
+        currentImage = rotate(img, quarterTurns: q)
+        if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible}) {
+            drive(reason: .fitToggle(true), mode: fitMode, window: win)
+        }
+        if let onScaleChanged { onScaleChanged(Int(round(zoom * 100)))}
+    }
 }
