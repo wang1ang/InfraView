@@ -16,11 +16,16 @@ import ImageIO
 struct ContentView: View {
     @StateObject private var store = ImageStore()
     @State private var showImporter = false
+    @State private var showDeleteConfirm = false
     @State private var scalePercent: Int = 100
     @State private var fitMode: FitMode = .fitWindowToImage
     @State private var toolbarWasVisible = true
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
 
+    private var currentURL: URL? {
+        guard let i = store.selection, store.imageURLs.indices.contains(i) else { return nil }
+        return store.imageURLs[i]
+    }
     // ⬇️ Core 依赖
     private let repo = ImageRepositoryImpl()
     private let cache = ImageCache(capacity: 8)
@@ -96,6 +101,19 @@ struct ContentView: View {
             }
             return true
         }
+        .alert("Move to Trash", isPresented: $showDeleteConfirm, presenting: currentURL) { url in
+            Button("Move to Trash", role: .destructive) {
+                performDelete()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { }
+        } message: { url in
+            Text(url.lastPathComponent)
+        }
+        /*
+        .onDeleteCommand {
+            requestDelete()
+        }*/
     }
 
     // 工具栏绑定改到 viewerVM
@@ -123,7 +141,7 @@ struct ContentView: View {
                 .keyboardShortcut(.leftArrow, modifiers: [])
             Button { next() } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
-            Button { deleteCurrent() } label: { Image(systemName: "trash") }
+            Button { requestDelete() } label: { Image(systemName: "trash") }
                 .keyboardShortcut(.delete, modifiers: [])
                 .keyboardShortcut(.delete, modifiers: [.command])
                 .keyboardShortcut(.deleteForward, modifiers: [])
@@ -164,7 +182,12 @@ struct ContentView: View {
 
     private func next() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel + 1) % store.imageURLs.count }
     private func previous() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count }
-    private func deleteCurrent() {
+    
+    private func requestDelete() {
+        guard currentURL != nil else { return }
+        showDeleteConfirm = true
+    }
+    private func performDelete() {
         guard let idx = store.selection, !store.imageURLs.isEmpty else { return }
         do {
             try store.delete(at: idx)
