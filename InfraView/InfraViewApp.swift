@@ -13,5 +13,21 @@ struct InfraViewApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            CommandMenu("Edit") {
+                Button("Move to Trash") {
+                    NotificationCenter.default.post(name: .infraDelete, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: [])
+                Button("Move to Trash") {
+                    NotificationCenter.default.post(name: .infraDelete, object: nil)
+                }
+                .keyboardShortcut(.deleteForward, modifiers: [])
+                Button("Move to Trash") {
+                    NotificationCenter.default.post(name: .infraDelete, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: [.command])
+            }
+        }
     }
 }

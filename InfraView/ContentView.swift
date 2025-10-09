@@ -110,7 +110,9 @@ struct ContentView: View {
         } message: { url in
             Text(url.lastPathComponent)
         }
-        /*
+        .onReceive(NotificationCenter.default.publisher(for: .infraDelete)) { _ in
+            requestDelete()
+        }/*
         .onDeleteCommand {
             requestDelete()
         }*/
@@ -142,9 +144,6 @@ struct ContentView: View {
             Button { next() } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Button { requestDelete() } label: { Image(systemName: "trash") }
-                .keyboardShortcut(.delete, modifiers: [.command])
-                .keyboardShortcut(.delete, modifiers: [])
-                .keyboardShortcut(.deleteForward, modifiers: [])
         }
     }
 
@@ -441,6 +440,9 @@ extension UTType {
 extension Notification.Name {
     static let infraNext = Notification.Name("InfraView.Next")
     static let infraPrev = Notification.Name("InfraView.Prev")
+    static let infraDelete = Notification.Name("InfraView.Delete")
+    static let InfraLeft = Notification.Name("InfraView.Left")
+    static let InfraRight = Notification.Name("InfraView.Right")
 }
 
 
