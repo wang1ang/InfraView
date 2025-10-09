@@ -142,8 +142,8 @@ struct ContentView: View {
             Button { next() } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Button { requestDelete() } label: { Image(systemName: "trash") }
-                .keyboardShortcut(.delete, modifiers: [])
                 .keyboardShortcut(.delete, modifiers: [.command])
+                .keyboardShortcut(.delete, modifiers: [])
                 .keyboardShortcut(.deleteForward, modifiers: [])
         }
     }
@@ -281,6 +281,19 @@ struct ZoomableImage: View {
 
     @State private var baseZoom: CGFloat = 1
 
+    @ViewBuilder
+    private func imageView(_ w: CGFloat, _ h: CGFloat) -> some View {
+        if isAnimated(image) {
+            AnimatedImageView(image: image)
+                .frame(width: w, height: h)
+        } else {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: w, height: h)
+            //.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
     var body: some View {
         GeometryReader { proxy in
             let maxW = max(proxy.size.width, 1)
@@ -303,30 +316,22 @@ struct ZoomableImage: View {
             let eps: CGFloat = 1.0 / scale
             let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
 
-            let view = Group {
+            let content = ZStack {
+                CheckerboardBackground()
+                    .frame(width: contentWf, height: contentHf)
+                    .clipped()
+                imageView(contentWf, contentHf)
+            }
+            .frame(width: contentWf, height: contentHf)
+
+            Group {
                 if needScroll {
                     ScrollView([.horizontal, .vertical]) {
-                        if isAnimated(image){
-                            AnimatedImageView(image: image)
-                                .frame(width: contentWf, height: contentHf)
-                        } else {
-                            Image(nsImage: image)
-                                .resizable()
-                                .interpolation(.high)
-                                .frame(width: contentWf, height: contentHf)
-                        }
+                        content
                     }
                 } else {
-                    if isAnimated(image) {
-                        AnimatedImageView(image: image)
-                            .frame(width: contentWf, height: contentHf)
-                    } else {
-                        Image(nsImage: image)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: contentWf, height: contentHf)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                    content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
                 }
             }
             .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100))) }
@@ -350,13 +355,11 @@ struct ZoomableImage: View {
                     onScaleChanged(Int(round(currentScale * 100)))
                 }
             }
-
-            view
-                .gesture(
-                    MagnificationGesture()
-                        .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...5) }
-                        .onEnded { _ in baseZoom = zoom }
-                )
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...5) }
+                    .onEnded { _ in baseZoom = zoom }
+            )
         }
         .background(Color.black)
     }
