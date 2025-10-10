@@ -132,6 +132,9 @@ final class ViewerViewModel: ObservableObject {
     @Published var loadingError: String?
     var onScaleChanged: ((Int) -> Void)?
 
+    private var baseImage: NSImage?
+    private var currentURL: URL?
+    
     private let repo: ImageRepository
     private let cache: ImageCache
     private let preloader: ImagePreloader
@@ -197,17 +200,29 @@ final class ViewerViewModel: ObservableObject {
     func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
         guard urls.indices.contains(index) else { return }
         let url = urls[index]
+        currentURL = url  // used for persistent rotate
+        loadingError = nil
+        currentImage = nil   // 清空旧图，避免误用
+
+        // 1) 先用缓存（同步路径）
         if let cached = cache.get(url) {
-            currentImage = cached; loadingError = nil
+            baseImage = cached
+            let q = RotationStore.shared.get(for: url)
+            currentImage = (q == 0) ? cached : rotate(cached, quarterTurns: q)
             drive(reason: .newImage, mode: fitMode, window: window)
         } else {
-            currentImage = nil; loadingError = nil
-            Task.detached(priority: .userInitiated) {
+            // 2) 没缓存：异步加载，回主线程后再应用旋转并 drive
+            Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else { return }
                 let result = try? self.repo.load(at: url)
                 await MainActor.run {
+                    // 若期间用户已切到别的图，避免回写
+                    guard self.currentURL == url else { return }
                     if let (img, _) = result {
-                        self.currentImage = img
+                        self.baseImage = img
                         self.cache.set(url, img)
+                        let q = RotationStore.shared.get(for: url)
+                        self.currentImage = (q == 0) ? img : rotate(img, quarterTurns: q)
                         self.drive(reason: .newImage, mode: fitMode, window: window)
                     } else {
                         self.loadingError = "Unsupported image format."
@@ -276,12 +291,16 @@ final class ViewerViewModel: ObservableObject {
                       height: floor(h * s) / s)
     }
     
-    func rotateCurrentImage(fitMode: FitMode, by q: Int) {
-        guard let img = currentImage else { return }
-        currentImage = rotate(img, quarterTurns: q)
-        if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible}) {
-            drive(reason: .fitToggle(true), mode: fitMode, window: win)
-        }
-        if let onScaleChanged { onScaleChanged(Int(round(zoom * 100)))}
+    func rotateCurrentImage(fitMode: FitMode, by q: Int, window: NSWindow) {
+        guard let url = currentURL, let base = baseImage else { return }
+        
+        let oldQ = RotationStore.shared.get(for: url)
+        let newQ = ((oldQ + q) % 4 + 4) % 4
+        RotationStore.shared.set(newQ, for: url)
+        
+        currentImage = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
+        
+        drive(reason: .fitToggle(true), mode: fitMode, window: window)
+        onScaleChanged?(Int(round(zoom * 100)))
     }
 }

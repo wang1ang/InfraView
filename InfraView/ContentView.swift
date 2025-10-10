@@ -124,7 +124,10 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
             let q = (note.object as? Int) ?? 0
-            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q)
+            guard currentURL != nil else { return }
+            guard let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
+            
+            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q, window: win)
         }
     }
 
