@@ -167,6 +167,7 @@ struct ContentView: View {
             Button("\(Int(z * 100))%") {
                 fitToScreenBinding().wrappedValue = false
                 zoomBinding().wrappedValue = z
+                NotificationCenter.default.post(name: .infraRecenter, object: RecenterMode.imageCenter)
             }
         }
     }
@@ -282,16 +283,10 @@ private func isAnimated(_ img: NSImage) -> Bool {
     img.representations.contains { ($0 as? NSBitmapImageRep)?.value(forProperty: .frameCount) as? Int ?? 0 > 1 }
 }
 
-struct ZoomableImage: View {
+struct ZoomedContent: View {
+    let width: CGFloat
+    let height: CGFloat
     let image: NSImage
-    @Binding var zoom: CGFloat
-    @Binding var fitToScreen: Bool
-    let fitMode: FitMode
-    var onScaleChanged: (Int) -> Void
-    var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
-
-    @State private var baseZoom: CGFloat = 1
-
     @ViewBuilder
     private func imageView(_ w: CGFloat, _ h: CGFloat) -> some View {
         if isAnimated(image) {
@@ -305,6 +300,29 @@ struct ZoomableImage: View {
             //.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+    var body: some View {
+        ZStack {
+            CheckerboardBackground()
+                .frame(width: width, height: height)
+                .clipped()
+            imageView(width, height)
+        }
+        .frame(width: width, height: height)
+    }
+}
+
+struct ZoomableImage: View {
+    let image: NSImage
+    @Binding var zoom: CGFloat
+    @Binding var fitToScreen: Bool
+    let fitMode: FitMode
+    var onScaleChanged: (Int) -> Void
+    var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
+
+    @State private var baseZoom: CGFloat = 1
+    @State private var recenterMode: RecenterMode = .imageCenter
+    @State private var recenterToken = UUID()
+
     var body: some View {
         GeometryReader { proxy in
             let maxW = max(proxy.size.width, 1)
@@ -330,18 +348,17 @@ struct ZoomableImage: View {
             let eps: CGFloat = 1.0 / scale
             let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
 
-            let content = ZStack {
-                CheckerboardBackground()
-                    .frame(width: contentWf, height: contentHf)
-                    .clipped()
-                imageView(contentWf, contentHf)
-            }
-            .frame(width: contentWf, height: contentHf)
+            let content = ZoomedContent(width: contentWf, height:contentHf, image: image)
+            
+            let contentSize = CGSize(width: contentWf, height: contentHf)
 
             Group {
                 if needScroll {
-                    ScrollView([.horizontal, .vertical]) {
-                        content
+                    //ScrollView([.horizontal, .vertical]) { content }
+                    
+                    CenteringScrollView(
+                        contentSize: contentSize, recenterMode: recenterMode, recenterKey: recenterToken) {
+                        AnyView(content)
                     }
                 } else {
                     content
@@ -379,6 +396,11 @@ struct ZoomableImage: View {
                 if let win = keyWindowOrFirstVisible() {
                     win.toggleFullScreen(nil)
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .infraRecenter)) { note in
+                guard let mode = note.object as? RecenterMode else { return }
+                recenterMode = mode
+                recenterToken = UUID() // change token
             }
         }
         .background(Color.black)
@@ -464,6 +486,7 @@ extension Notification.Name {
     static let infraDelete = Notification.Name("InfraView.Delete")
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
+    static let infraRecenter = Notification.Name("InfraView.Recenter")
 }
 
 // MARK: - Window Helper
