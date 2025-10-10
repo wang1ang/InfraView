@@ -27,11 +27,6 @@ struct ContentView: View {
         guard let i = store.selection, store.imageURLs.indices.contains(i) else { return nil }
         return store.imageURLs[i]
     }
-    // ⬇️ Core 依赖
-    private let repo = ImageRepositoryImpl()
-    private let cache = ImageCache(capacity: 8)
-    private lazy var preloader = ImagePreloader(repo: repo, cache: cache)
-    private let sizer: WindowSizer = WindowSizerImpl()
 
     @StateObject private var viewerVM: ViewerViewModel
 
@@ -329,7 +324,10 @@ struct ZoomableImage: View {
             let contentWf = floor(contentW)
             let contentHf = floor(contentH)
             
-            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            let scale = NSApp.keyWindow?.backingScaleFactor
+                ?? NSApp.keyWindow?.screen?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 2.0
             let eps: CGFloat = 1.0 / scale
             let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
 
