@@ -10,7 +10,6 @@ import AppKit
 import ImageIO
 
 
-
 // MARK: - ContentView (drop-in replacement)
 
 struct ContentView: View {
@@ -97,7 +96,7 @@ struct ContentView: View {
                 guard !urls.isEmpty else { return }
                 await MainActor.run {
                     NSApp.activate(ignoringOtherApps: true)
-                    if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                    if let win = keyWindowOrFirstVisible() {
                         win.makeKeyAndOrderFront(nil)
                     }
                     store.load(urls: urls)
@@ -120,7 +119,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
             let q = (note.object as? Int) ?? 0
             guard currentURL != nil else { return }
-            guard let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
+            guard let win = keyWindowOrFirstVisible() else { return }
             viewerVM.rotateCurrentImage(fitMode: fitMode, by: q, window: win)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
@@ -175,7 +174,7 @@ struct ContentView: View {
     // 将本地 UI 操作转给 VM（需要 window 参与百分比计算）
     private func zoomBinding() -> Binding<CGFloat> {
         Binding(get: { viewerVM.zoom }, set: { newV in
-            if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+            if let win = keyWindowOrFirstVisible() {
                 viewerVM.drive(reason: .zoom(newV), mode: fitMode, window: win)
             } else {
                 viewerVM.zoom = newV
@@ -184,7 +183,7 @@ struct ContentView: View {
     }
     private func fitToScreenBinding() -> Binding<Bool> {
         Binding(get: { viewerVM.fitToScreen }, set: { newV in
-            if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+            if let win = keyWindowOrFirstVisible() {
                 viewerVM.drive(reason: .fitToggle(newV), mode: fitMode, window: win)
             } else {
                 viewerVM.fitToScreen = newV
@@ -229,12 +228,12 @@ struct Viewer: View {
                         ZoomableImage(
                             image: img,
                             zoom: Binding(get: { viewerVM.zoom }, set: { v in
-                                if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                                if let win = keyWindowOrFirstVisible() {
                                     viewerVM.drive(reason: .zoom(v), mode: fitMode, window: win)
                                 } else { viewerVM.zoom = v }
                             }),
                             fitToScreen: Binding(get: { viewerVM.fitToScreen }, set: { v in
-                                if let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                                if let win = keyWindowOrFirstVisible() {
                                     viewerVM.drive(reason: .fitToggle(v), mode: fitMode, window: win)
                                 } else { viewerVM.fitToScreen = v }
                             }),
@@ -270,7 +269,7 @@ struct Viewer: View {
     private func showCurrent() {
         guard let idx = store.selection,
               idx < store.imageURLs.count,
-              let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible })
+              let win = keyWindowOrFirstVisible()
         else { return }
         viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode, window: win)
 
@@ -375,6 +374,12 @@ struct ZoomableImage: View {
                     .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...5) }
                     .onEnded { _ in baseZoom = zoom }
             )
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                if let win = keyWindowOrFirstVisible() {
+                    win.toggleFullScreen(nil)
+                }
+            }
         }
         .background(Color.black)
     }
@@ -461,6 +466,11 @@ extension Notification.Name {
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
 }
 
+// MARK: - Window Helper
+@inline(__always)
+func keyWindowOrFirstVisible() -> NSWindow? {
+    NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible })
+}
 
 // 小工具：把 NSItemProvider 的 loadItem 包成 async
 func loadItemURL(provider: NSItemProvider, type: UTType) async -> URL? {
@@ -498,6 +508,7 @@ func loadItemURL(provider: NSItemProvider, type: UTType) async -> URL? {
                 } else {
                     cont.resume(returning: nil)
                 }
-            }        }
+            }
+        }
     }
 }
