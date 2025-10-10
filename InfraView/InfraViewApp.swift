@@ -39,4 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true  // ✅ 当最后一个窗口被关闭时退出程序
     }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        NotificationCenter.default.post(name: .openFileBySystem, object: urls)
+    }
 }

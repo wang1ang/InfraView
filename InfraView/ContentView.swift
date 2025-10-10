@@ -126,8 +126,12 @@ struct ContentView: View {
             let q = (note.object as? Int) ?? 0
             guard currentURL != nil else { return }
             guard let win = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
-            
             viewerVM.rotateCurrentImage(fitMode: fitMode, by: q, window: win)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
+            if let urls = note.object as? [URL] {
+                store.load(urls: urls)
+            }
         }
     }
 
@@ -456,6 +460,7 @@ extension Notification.Name {
     static let infraPrev = Notification.Name("InfraView.Prev")
     static let infraDelete = Notification.Name("InfraView.Delete")
     static let infraRotate = Notification.Name("InfraView.Rotate")
+    static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
 }
 
 
