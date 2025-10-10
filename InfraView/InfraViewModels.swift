@@ -268,7 +268,7 @@ final class ViewerViewModel: ObservableObject {
         case .fitWindowToImage:
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
             let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
-            return (sz, true, false)
+            return (sz, true, true)
             //return (scaledContentSize(for: img, scale: zoom), true, false)
 
         case .doNotFit:
