@@ -354,12 +354,19 @@ struct ZoomableImage: View {
 
             Group {
                 if needScroll {
+                    ScrollView([.horizontal, .vertical]) {
+                        content   // 你的图片视图
+                            .background(
+                                ScrollAligner(mode: recenterMode, token: recenterToken)
+                            )
+                    }
                     //ScrollView([.horizontal, .vertical]) { content }
-                    
+                    /*
                     CenteringScrollView(
                         contentSize: contentSize, recenterMode: recenterMode, recenterKey: recenterToken) {
                             AnyView(content)
                     }
+                     */
                 } else {
                     content
                     .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
