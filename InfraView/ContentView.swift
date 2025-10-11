@@ -322,9 +322,6 @@ struct ZoomableImage: View {
     @State private var baseZoom: CGFloat = 1
     @State private var recenterMode: RecenterMode = .imageCenter
     @State private var recenterToken = UUID()
-    @State private var clipSize: CGSize = .zero
-    @State private var needH = false
-    @State private var needV = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -358,33 +355,11 @@ struct ZoomableImage: View {
             Group {
                 if needScroll {
                     //ScrollView([.horizontal, .vertical]) { content }
-                    let docSize = CGSize(width: contentWf, height: contentHf)
-
-                    ScrollView([.horizontal, .vertical]) {
-                        content
-                            .centerBox(contentSize: docSize, clipSize: clipSize, needH: needH, needV: needV)
-                            .background(
-                                ScrollHelpers(
-                                    mode: recenterMode,
-                                    token: recenterToken,
-                                    expectedDocSize: docSize,
-                                    onClipChange: { clip, h, v in
-                                        clipSize = clip
-                                        needH = h
-                                        needV = v
-                                    },
-                                    onNeedSnap: {                          // ✅ 轴收口时，强制居中/归零一次
-                                        recenterMode = .imageCenter        // 居中（不可滚动轴会正确居中；若仍可滚则中心对齐）
-                                        recenterToken = UUID()             // 触发 ScrollTuner 的 scroll(to:)
-                                    }
-                                )
-                            )
-                    }
-                    /*
+                    
                     CenteringScrollView(
                         contentSize: contentSize, recenterMode: recenterMode, recenterKey: recenterToken) {
-                        AnyView(content)
-                    }*/
+                            AnyView(content)
+                    }
                 } else {
                     content
                     .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
