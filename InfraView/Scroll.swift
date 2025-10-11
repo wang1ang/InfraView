@@ -176,3 +176,214 @@ struct CenteringScrollView<Content: View>: NSViewRepresentable {
 
 
 }
+
+
+/// 在原生 ScrollView 内部悄悄拿到 NSScrollView，并在 token 变更时做一次性滚动定位
+struct ScrollTuner: NSViewRepresentable {
+    let mode: RecenterMode
+    let token: UUID           // 每次要对齐→换一个 token
+    let expectedDocSize: CGSize   // 你的“内容点尺寸”（缩放后），用于判稳
+
+    final class Holder: NSView {}
+    final class Coord {
+        weak var sv: NSScrollView?
+        var lastToken: UUID?
+        var pending = false
+    }
+    func makeCoordinator() -> Coord { Coord() }
+
+    func makeNSView(context: Context) -> NSView {
+        let v = Holder()
+        DispatchQueue.main.async { attachIfNeeded(v, context) }
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) {
+        attachIfNeeded(v, context)
+        guard let sv = context.coordinator.sv else { return }
+        if context.coordinator.lastToken != token {
+            context.coordinator.lastToken = token
+            scheduleOnce(sv: sv, context: context)
+        }
+    }
+
+    private func attachIfNeeded(_ v: NSView, _ context: Context) {
+        guard context.coordinator.sv == nil else { return }
+        var p: NSView? = v
+        while let cur = p {
+            if let sv = cur as? NSScrollView {
+                context.coordinator.sv = sv
+                break
+            }
+            p = cur.superview
+        }
+    }
+
+    /// 最多等 3 个 runloop tick：直到 clip/doc 稳定且 doc≈expected，再滚动
+    private func scheduleOnce(sv: NSScrollView, context: Context) {
+        guard context.coordinator.pending == false else { return }
+        context.coordinator.pending = true
+        var tries = 0
+        var lastClip = CGSize.zero
+        var lastDoc  = CGSize.zero
+
+        func step() {
+            tries += 1
+            sv.layoutSubtreeIfNeeded()
+            let clip = sv.contentView.bounds.size
+            let doc  = sv.documentView?.bounds.size ?? .zero
+
+            let docStable = hypot(doc.width - expectedDocSize.width,
+                                  doc.height - expectedDocSize.height) <= 0.5
+
+            if ((clip == lastClip && doc == lastDoc) && docStable) || tries >= 3 {
+                context.coordinator.pending = false
+                recenterNow(sv: sv, clip: clip, doc: doc)
+            } else {
+                lastClip = clip; lastDoc = doc
+                DispatchQueue.main.async { step() }
+            }
+        }
+        DispatchQueue.main.async { step() }
+    }
+
+    private func recenterNow(sv: NSScrollView, clip: CGSize, doc: CGSize) {
+        guard let docView = sv.documentView else { return }
+
+        @inline(__always) func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { min(max(v, lo), hi) }
+        let maxX = max(0, doc.width  - clip.width)
+        let maxY = max(0, doc.height - clip.height)
+
+        let desired: NSPoint? = {
+            switch mode {
+            case .none:        return nil
+            case .topLeft:     return NSPoint(x: 0, y: doc.height - clip.height)
+            case .imageCenter: return NSPoint(x: (doc.width  - clip.width)/2,  y: (doc.height - clip.height)/2)
+            case .visibleCenter:
+                let vis = sv.contentView.bounds
+                let cInView = CGPoint(x: vis.midX, y: vis.midY)
+                let cInDoc  = sv.contentView.convert(cInView, to: docView)
+                return NSPoint(x: cInDoc.x - vis.width/2, y: cInDoc.y - vis.height/2)
+            case .cursor:
+                guard let win = sv.window else { return nil }
+                let mouseScreen = NSEvent.mouseLocation
+                let mouseWin    = win.convertPoint(fromScreen: mouseScreen)
+                let mouseScroll = sv.convert(mouseWin, from: nil)
+                let mouseDoc    = sv.contentView.convert(mouseScroll, to: docView)
+                return NSPoint(x: mouseDoc.x - clip.width/2, y: mouseDoc.y - clip.height/2)
+            }
+        }()
+
+        if var o = desired {
+            o.x = clamp(o.x, 0, maxX)
+            o.y = clamp(o.y, 0, maxY)
+            sv.contentView.scroll(to: o)
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+    }
+}
+
+
+/// 仅在“不可滚动的轴”上做最小尺寸约束以居中；可滚动轴不加约束，保证贴边
+struct CenterBox: ViewModifier {
+    let contentSize: CGSize
+    let clipSize: CGSize
+    let needH: Bool
+    let needV: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .frame(
+                minWidth:  needH ? nil : clipSize.width,
+                minHeight: needV ? nil : clipSize.height,
+                alignment: .center
+            )
+    }
+}
+extension View {
+    func centerBox(contentSize: CGSize, clipSize: CGSize, needH: Bool, needV: Bool) -> some View {
+        modifier(CenterBox(contentSize: contentSize, clipSize: clipSize, needH: needH, needV: needV))
+    }
+}
+
+struct ScrollHelpers: View {
+    let mode: RecenterMode
+    let token: UUID
+    let expectedDocSize: CGSize
+    let onClipChange: (CGSize, Bool, Bool) -> Void
+    let onNeedSnap: () -> Void                     // ✅ 新增
+
+    var body: some View {
+        Color.clear
+            .background(
+                ClipSizeProbe(
+                    onChange: { clip, h, v in onClipChange(clip, h, v) },
+                    onAxesBecameNonScrollable: { onNeedSnap() }   // ✅ 触发 snap
+                )
+            )
+            .background(
+                ScrollTuner(mode: mode, token: token, expectedDocSize: expectedDocSize)
+            )
+            .allowsHitTesting(false)
+    }
+}
+
+struct ClipSizeProbe: NSViewRepresentable {
+    var onChange: (_ clip: CGSize, _ needH: Bool, _ needV: Bool) -> Void
+    var onAxesBecameNonScrollable: (() -> Void)? = nil   // ✅ 新增
+
+    final class Coordinator {
+        weak var scrollView: NSScrollView?
+        var obs: NSKeyValueObservation?
+        var lastClip: CGSize = .zero
+        var lastNH = false
+        var lastNV = false
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { attach(v, context) }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        attach(nsView, context)
+    }
+
+    private func attach(_ v: NSView, _ context: Context) {
+        guard context.coordinator.scrollView == nil else { return }
+        var p: NSView? = v
+        while let cur = p {
+            if let sv = cur as? NSScrollView {
+                context.coordinator.scrollView = sv
+                context.coordinator.obs = sv.contentView.observe(\.bounds, options: [.new]) { _, _ in
+                    emit(sv, context)
+                }
+                emit(sv, context) // 初次
+                break
+            }
+            p = cur.superview
+        }
+    }
+
+    private func emit(_ sv: NSScrollView, _ context: Context) {
+        sv.layoutSubtreeIfNeeded()
+        let clip = sv.contentView.bounds.size
+        let doc  = sv.documentView?.bounds.size ?? .zero
+        let eps: CGFloat = 0.5
+        let needH = doc.width  > clip.width  + eps
+        let needV = doc.height > clip.height + eps
+
+        // 触发回调
+        if clip != context.coordinator.lastClip || needH != context.coordinator.lastNH || needV != context.coordinator.lastNV {
+            // ✅ 轴从可滚动→不可滚动，要求“收口”一次
+            if (context.coordinator.lastNH == true && needH == false) ||
+               (context.coordinator.lastNV == true && needV == false) {
+                onAxesBecameNonScrollable?()
+            }
+            context.coordinator.lastClip = clip
+            context.coordinator.lastNH = needH
+            context.coordinator.lastNV = needV
+            onChange(clip, needH, needV)
+        }
+    }
+}
