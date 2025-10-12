@@ -192,6 +192,8 @@ struct ScrollAligner: NSViewRepresentable {
             if let sv = cur as? NSScrollView {
                 context.coordinator.sv = sv
                 sv.usesPredominantAxisScrolling = true   // 更自然的滚轮手感
+                // Align at the first time
+                DispatchQueue.main.async { self.scheduleAlign(sv) }
                 break
             }
             p = cur.superview
@@ -203,22 +205,34 @@ struct ScrollAligner: NSViewRepresentable {
         var tries = 0
         var lastClip = CGSize.zero
         var lastDoc  = CGSize.zero
+        var lastCanH: Bool? = nil
+        var lastCanV: Bool? = nil
 
         func step() {
             tries += 1
             sv.layoutSubtreeIfNeeded()
+
             let clip = sv.contentView.bounds.size
             let doc  = sv.documentView?.bounds.size ?? .zero
 
-            if (clip == lastClip && doc == lastDoc) || tries >= 2 {
+            let eps: CGFloat = 1.0
+            let canH = doc.width  > clip.width  + eps
+            let canV = doc.height > clip.height + eps
+
+            let stable = (clip == lastClip && doc == lastDoc &&
+                          canH == lastCanH && canV == lastCanV)
+
+            if stable || tries >= 4 {
                 alignOnce(sv)
             } else {
                 lastClip = clip; lastDoc = doc
+                lastCanH = canH;  lastCanV = canV
                 DispatchQueue.main.async { step() }
             }
         }
         DispatchQueue.main.async { step() }
     }
+
 
     private func alignOnce(_ sv: NSScrollView) {
         guard let docView = sv.documentView else { return }
