@@ -12,6 +12,8 @@ public struct StatusItem: Identifiable, Equatable {
 public final class StatusBarStore: ObservableObject {
     public static let shared = StatusBarStore()
     @Published public var items: [StatusItem] = []
+    @Published public var isVisible: Bool = true
+    public var height: CGFloat { isVisible ? 22 : 0 }
 
     /// 设置或更新一个段位（同 label 会被覆盖）
     public func set(_ label: String, _ value: String) {

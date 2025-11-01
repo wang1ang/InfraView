@@ -178,9 +178,7 @@ final class WindowSizerImpl: WindowSizer {
     func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
         let base = naturalPointSize(image)
         var avail = maxContentLayoutSizeInVisibleFrame(window)
-        
-        //let bottomBarHeight: CGFloat = 22
-        //avail.height = max(0, avail.height - bottomBarHeight)
+
         let (vBar, hBar) = legacyScrollbarThickness()
         for _ in 0..<2 {
             let s = min(avail.width / max(base.width, 1),
@@ -229,7 +227,7 @@ final class WindowSizerImpl: WindowSizer {
         let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
         let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
 
-        let bottomStatusBar: CGFloat = 22
+        let bottomStatusBar = StatusBarStore.shared.height
         // 4) 可容纳的最大 contentRect 尺寸 = visibleFrame 尺寸 - 窗口装饰
         let maxLayoutW = max(vf.width  - decoW - layoutExtraW, 0)
         let maxLayoutH = max(vf.height - decoH - layoutExtraH - bottomStatusBar, 0)
@@ -307,7 +305,7 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
     // 先确保窗口不是 zoomed / fullScreen
     if window.styleMask.contains(.fullScreen) { return }      // 全屏下不处理
     
-    let bottomBarHeight: CGFloat = 22
+    let bottomBarHeight = StatusBarStore.shared.height
 
     // 设置最小尺寸
     let minW: CGFloat = 360, minH: CGFloat = 280

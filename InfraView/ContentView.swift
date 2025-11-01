@@ -134,12 +134,6 @@ struct ContentView: View {
                 store.load(urls: urls)
             }
         }
-        /*
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            StatusBar()
-                .frame(height: 22)
-        }
-        */
     }
 
     // 工具栏绑定改到 viewerVM
@@ -229,6 +223,8 @@ struct Viewer: View {
     @ObservedObject var viewerVM: ViewerViewModel
     let fitMode: FitMode
     var onScaleChanged: (Int) -> Void
+    
+    @ObservedObject private var bar = StatusBarStore.shared
 
     var body: some View {
         Group {
@@ -277,6 +273,10 @@ struct Viewer: View {
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }
+        }
+        .onChange(of: bar.isVisible) { _, _ in
+            guard let win = keyWindowOrFirstVisible() else { return }
+            viewerVM.drive(reason: .fitToggle(true), mode: fitMode, window: win)
         }
     }
 

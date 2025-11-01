@@ -10,6 +10,8 @@ import SwiftUI
 @main
 struct InfraViewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var bar = StatusBarStore.shared
+
     init() {
         bindDeleteToCommandBackspace()
     }
@@ -28,17 +30,22 @@ struct InfraViewApp: App {
                     NotificationCenter.default.post(name: .infraRotate, object: 1)
                 }
                 .keyboardShortcut("R", modifiers: [])
+                Toggle("Show Status Bar", isOn: $bar.isVisible)
+                .keyboardShortcut("S", modifiers: [])
             }
         }
     }
 }
 
 struct ContentViewWithStatusBar: View {
+    @ObservedObject private var bar = StatusBarStore.shared
+
     var body: some View {
         VStack(spacing: 0) {
             ContentView()
-            StatusBar()
-                .frame(height: 22)
+            if bar.isVisible {
+                StatusBar().frame(height: bar.height)
+            }
         }
     }
 }
