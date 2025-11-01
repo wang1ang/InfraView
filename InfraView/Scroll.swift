@@ -200,7 +200,10 @@ struct ScrollAligner: NSViewRepresentable {
         }
     }
 
-    /// 最多两拍：等待 clip/doc 稳定后再对齐（避免尺寸还在跳时提前对齐）
+    private let settleMaxTries = 4
+    private let settleEps: CGFloat = 1.0
+
+    /// 最多四拍：等待 clip/doc/可滚状态稳定后再对齐
     private func scheduleAlign(_ sv: NSScrollView) {
         var tries = 0
         var lastClip = CGSize.zero
@@ -215,14 +218,14 @@ struct ScrollAligner: NSViewRepresentable {
             let clip = sv.contentView.bounds.size
             let doc  = sv.documentView?.bounds.size ?? .zero
 
-            let eps: CGFloat = 1.0
+            let eps: CGFloat = settleEps
             let canH = doc.width  > clip.width  + eps
             let canV = doc.height > clip.height + eps
 
             let stable = (clip == lastClip && doc == lastDoc &&
                           canH == lastCanH && canV == lastCanV)
 
-            if stable || tries >= 4 {
+            if stable || tries >= settleMaxTries {
                 alignOnce(sv)
             } else {
                 lastClip = clip; lastDoc = doc

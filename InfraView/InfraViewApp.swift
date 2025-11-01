@@ -15,7 +15,7 @@ struct InfraViewApp: App {
     }
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentViewWithStatusBar()
         }
         //.windowStyle(.titleBar)
         .commands {
@@ -33,6 +33,15 @@ struct InfraViewApp: App {
     }
 }
 
+struct ContentViewWithStatusBar: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ContentView()
+            StatusBar()
+                .frame(height: 22)
+        }
+    }
+}
 
 // Used only for exit window by clicking the X
 final class AppDelegate: NSObject, NSApplicationDelegate {

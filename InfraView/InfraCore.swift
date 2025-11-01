@@ -175,9 +175,12 @@ final class WindowSizerImpl: WindowSizer {
                       height: floor(base.height * scale))
 
     }
-    func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat { /* 用你现有 accurateFitScale */
+    func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
         let base = naturalPointSize(image)
         var avail = maxContentLayoutSizeInVisibleFrame(window)
+        
+        //let bottomBarHeight: CGFloat = 22
+        //avail.height = max(0, avail.height - bottomBarHeight)
         let (vBar, hBar) = legacyScrollbarThickness()
         for _ in 0..<2 {
             let s = min(avail.width / max(base.width, 1),
@@ -213,6 +216,7 @@ final class WindowSizerImpl: WindowSizer {
 
         // 2) 先求“contentRect 与 frameRect 的装饰差”
         //    用一个 100x100 的 dummy contentRect 反推出 frameRect，然后取差值
+        //    在我的代码里没有标题栏和边框，所以里都是0
         let dummyContent = NSRect(x: 0, y: 0, width: 100, height: 100)
         let dummyFrame   = window.frameRect(forContentRect: dummyContent)
         let decoW = dummyFrame.width  - dummyContent.width
@@ -225,13 +229,10 @@ final class WindowSizerImpl: WindowSizer {
         let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
         let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
 
+        let bottomStatusBar: CGFloat = 22
         // 4) 可容纳的最大 contentRect 尺寸 = visibleFrame 尺寸 - 窗口装饰
-        let maxContentRectW = max(vf.width  - decoW, 0)
-        let maxContentRectH = max(vf.height - decoH, 0)
-
-        // 5) 再扣掉 contentRect → contentLayoutRect 的差，得到“最大 contentLayoutRect 尺寸”
-        let maxLayoutW = max(maxContentRectW - layoutExtraW, 0)
-        let maxLayoutH = max(maxContentRectH - layoutExtraH, 0)
+        let maxLayoutW = max(vf.width  - decoW - layoutExtraW, 0)
+        let maxLayoutH = max(vf.height - decoH - layoutExtraH - bottomStatusBar, 0)
 
         return CGSize(width: floor(maxLayoutW), height: floor(maxLayoutH))
     }
@@ -301,27 +302,36 @@ func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
 
 @MainActor
 func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Bool = true) {
+    // 获取目标窗口
     guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
-
-    // ✅ 关键补丁：先确保窗口不是 zoomed / fullScreen
+    // 先确保窗口不是 zoomed / fullScreen
     if window.styleMask.contains(.fullScreen) { return }      // 全屏下不处理
+    
+    let bottomBarHeight: CGFloat = 22
 
+    // 设置最小尺寸
     let minW: CGFloat = 360, minH: CGFloat = 280
     var layoutW = max(ceil(desiredContentSize.width),  minW)
-    var layoutH = max(ceil(desiredContentSize.height), minH)
+    var layoutH = max(ceil(desiredContentSize.height + bottomBarHeight), minH)
 
-    let currentFrame = window.frame
-    let currentContentRect = window.contentRect(forFrameRect: currentFrame)
-    let currentLayoutRect = window.contentLayoutRect
+    // 获取当前窗口的矩形信息
+    let currentFrame = window.frame // 整个窗口
+    let currentContentRect = window.contentRect(forFrameRect: currentFrame) // 去掉标题栏 （不包含标题栏）
+    let currentLayoutRect = window.contentLayoutRect // 去掉工具栏
+
+    // 标题栏大小
     let layoutExtraW = max(0, currentContentRect.width  - currentLayoutRect.width)
     let layoutExtraH = max(0, currentContentRect.height - currentLayoutRect.height)
-
+    
+    // 初步计算内容区大小
     var contentW = layoutW + layoutExtraW
-    var contentH = layoutH + layoutExtraH + (scrollbarAware ? 1 : 0)
+    var contentH = layoutH + layoutExtraH //+ (scrollbarAware ? 1 : 0)
 
+    // 🧭 获取滚动条厚度和屏幕可见区域
     let (vBar, hBar) = legacyScrollbarThickness()
     let vf = (window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
 
+    // 🧱 测试装饰尺寸（标题栏、边框）
     let testContentRect = NSRect(x: 0, y: 0, width: 100, height: 100)
     let testFrame = window.frameRect(forContentRect: testContentRect)
     let decoW = testFrame.width  - testContentRect.width
@@ -329,6 +339,7 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
     var availW = max(vf.width  - decoW, minW)
     var availH = max(vf.height - decoH, minH)
     
+    // 🧮 如果要考虑滚动条，则自洽计算可用空间
     if scrollbarAware {
         var needV = contentH > availH
         var needH = contentW > availW
@@ -349,11 +360,14 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
         contentW = min(contentW, availW)
         contentH = min(contentH, availH)
     }
+    
+    // 🧭 计算最终目标外框（保持上边缘不动）
     var targetFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH))
     let currentTop = window.frame.maxY
     targetFrame.origin.x = window.frame.origin.x
     targetFrame.origin.y = currentTop - targetFrame.height
 
+    // 🖥️ 限制窗口在屏幕可见范围内
     if let screen = window.screen {
         let vf2 = screen.visibleFrame
         if targetFrame.width  > vf2.width  { targetFrame.size.width  = vf2.width }
@@ -361,6 +375,7 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
         targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
         targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
     }
+    // ⚙️ 处理 zoomed（标准缩放）状态
     if window.isZoomed {
         // window.zoom(nil)
         // 在 zoomed 状态下，用 delegate 指定“标准帧”= targetFrame，然后执行一次无动画 zoom
@@ -377,6 +392,7 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
         helper.pendingStandardFrame = nil
         window.delegate = oldDelegate
     }                   // 退出“标准缩放”状态
+    // 🚪 非 zoomed 状态，直接设定新 frame
     else {
         window.setFrame(targetFrame, display: true, animate: false)
     }

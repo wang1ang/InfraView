@@ -38,10 +38,17 @@ struct ContentView: View {
     }
 
     var body: some View {
-        GeometryReader { _ in
-            Viewer(store: store, viewerVM: viewerVM, fitMode: fitMode) { p in
+        GeometryReader { geo in
+            //let size = geo.size
+            let onScale: (Int) -> Void = { p in
                 scalePercent = p
+                StatusBarStore.shared.set("Zoom", "\(p)%")
             }
+            Viewer(store: store,
+                   viewerVM: viewerVM,
+                   fitMode: fitMode,
+                   onScaleChanged: onScale
+            )
         }
         .background(
             InstallDeleteResponder {
@@ -127,6 +134,12 @@ struct ContentView: View {
                 store.load(urls: urls)
             }
         }
+        /*
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            StatusBar()
+                .frame(height: 22)
+        }
+        */
     }
 
     // 工具栏绑定改到 viewerVM
@@ -311,108 +324,6 @@ struct ZoomedContent: View {
     }
 }
 
-struct ZoomableImage: View {
-    let image: NSImage
-    @Binding var zoom: CGFloat
-    @Binding var fitToScreen: Bool
-    let fitMode: FitMode
-    var onScaleChanged: (Int) -> Void
-    var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
-
-    @State private var baseZoom: CGFloat = 1
-    @State private var recenterMode: RecenterMode = .imageCenter
-    @State private var recenterToken = UUID()
-
-    var body: some View {
-        GeometryReader { proxy in
-            let maxW = max(proxy.size.width, 1)
-            let maxH = max(proxy.size.height, 1)
-
-            let naturalPt = naturalPointSize(image)
-            let baseW = max(naturalPt.width, 1)
-            let baseH = max(naturalPt.height, 1)
-            let fitScaleRaw = min(maxW / baseW, maxH / baseH)
-            let effectiveFitScale = (fitMode == .fitOnlyBigToWindow) ? min(fitScaleRaw, 1) : fitScaleRaw
-            let currentScale: CGFloat = fitToScreen ? effectiveFitScale : zoom
-
-            let contentW = baseW * currentScale
-            let contentH = baseH * currentScale
-            
-            let contentWf = floor(contentW)
-            let contentHf = floor(contentH)
-            
-            let scale = NSApp.keyWindow?.backingScaleFactor
-                ?? NSApp.keyWindow?.screen?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 2.0
-            let eps: CGFloat = 1.0 / scale
-            let needScroll = (contentW - maxW) > eps || (contentH - maxH) > eps
-
-            let content = ZoomedContent(width: contentWf, height:contentHf, image: image)
-            
-            let contentSize = CGSize(width: contentWf, height: contentHf)
-
-            Group {
-                if needScroll {
-                    ScrollView([.horizontal, .vertical]) {
-                        content   // 你的图片视图
-                            .background(
-                                ScrollAligner(mode: recenterMode, token: recenterToken)
-                            )
-                    }
-                    //ScrollView([.horizontal, .vertical]) { content }
-                    /*
-                    CenteringScrollView(
-                        contentSize: contentSize, recenterMode: recenterMode, recenterKey: recenterToken) {
-                            AnyView(content)
-                    }
-                     */
-                } else {
-                    content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
-                }
-            }
-            .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100))) }
-            .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentWf, height: contentHf)) }
-            
-            // refresh displayed scale
-            .onChange(of: fitToScreen) { _, newFit in
-                let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
-                onScaleChanged(Int(round(cs * 100)))
-            }
-            .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
-                baseZoom = newZoom
-            }
-            .onChange(of: proxy.size) { _, _ in
-                if fitToScreen {
-                    onScaleChanged(Int(round(currentScale * 100)))
-                }
-            }
-            .onChange(of: fitMode) { _, _ in
-                if fitToScreen {
-                    onScaleChanged(Int(round(currentScale * 100)))
-                }
-            }
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { v in fitToScreen = false; zoom = clamp(baseZoom * v, 0.25...5) }
-                    .onEnded { _ in baseZoom = zoom }
-            )
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                if let win = keyWindowOrFirstVisible() {
-                    win.toggleFullScreen(nil)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .infraRecenter)) { note in
-                guard let mode = note.object as? RecenterMode else { return }
-                recenterMode = mode
-                recenterToken = UUID() // change token
-            }
-        }
-        .background(Color.black)
-    }
-}
 
 struct AnimatedImageView: NSViewRepresentable {
     let image: NSImage
@@ -430,10 +341,6 @@ struct AnimatedImageView: NSViewRepresentable {
 }
 
 // MARK: - Helpers
-private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
-    let fitScale = min(maxW / baseW, maxH / baseH)
-    return isFit ? fitScale : zoom
-}
 
 
 /*
