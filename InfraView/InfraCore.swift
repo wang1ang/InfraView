@@ -138,7 +138,7 @@ protocol WindowSizer {
 
 @MainActor
 final class WindowSizerImpl: WindowSizer {
-    func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize { /* 用你现有 fittedContentSizeAccurate */
+    func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize { // 按当前窗口计算可视面积
 
         let base = naturalPointSize(image)
         // 最大 contentLayout 尺寸（无余量）
@@ -176,6 +176,7 @@ final class WindowSizerImpl: WindowSizer {
 
     }
     func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
+        // 按屏幕大小计算可视面积
         let base = naturalPointSize(image)
         var avail = maxContentLayoutSizeInVisibleFrame(window)
 
