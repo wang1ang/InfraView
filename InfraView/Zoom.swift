@@ -59,10 +59,12 @@ struct WheelZoomCatcher: NSViewRepresentable {
 
 struct ZoomableImage: View {
     let image: NSImage
+    
+    // core variable: zoom factor set by user
     @Binding var zoom: CGFloat
     @Binding var fitToScreen: Bool
     let fitMode: FitMode
-    var onScaleChanged: (Int) -> Void
+    var onScaleChanged: (CGFloat) -> Void
     var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
 
     @State private var baseZoom: CGFloat = 1
@@ -71,11 +73,12 @@ struct ZoomableImage: View {
     
     private func handleWheelZoom(factor: CGFloat, mouseInWindow: NSPoint) {
         fitToScreen = false
-        zoom *= factor
+        print("set zoom in handleWheelZoom")
+        zoom = clamp(zoom * factor, 0.25...5)
         recenterMode = .imageCenter
         recenterToken = UUID()
     }
-
+    
     var body: some View {
         GeometryReader { proxy in
             let maxW = max(proxy.size.width, 1)
@@ -86,6 +89,8 @@ struct ZoomableImage: View {
             let baseH = max(naturalPt.height, 1)
             let fitScaleRaw = min(maxW / baseW, maxH / baseH)
             let effectiveFitScale = (fitMode == .fitOnlyBigToWindow) ? min(fitScaleRaw, 1) : fitScaleRaw
+
+            // core variable: real scale in display
             let currentScale: CGFloat = fitToScreen ? effectiveFitScale : zoom
 
             let contentW = baseW * currentScale
@@ -131,36 +136,48 @@ struct ZoomableImage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
                 }
             }
-            .onAppear { baseZoom = zoom; onScaleChanged(Int(round(currentScale * 100)));
-                StatusBarStore.shared.set("Image","\(Int(baseW))×\(Int(baseH))pt")
+            .onAppear {
+                print("onAppear:", currentScale)
+                onScaleChanged(currentScale)
             }
             .onChange(of: needScroll) { _, newNeed in onLayoutChange?(newNeed, CGSize(width: contentWf, height: contentHf)) }
             
             // refresh displayed scale
             .onChange(of: fitToScreen) { _, newFit in
-                let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
-                onScaleChanged(Int(round(cs * 100)))
+                //let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
+                print("fitToScreen:", currentScale)
+                onScaleChanged(currentScale)
             }
-            .onChange(of: zoom) { _, newZoom in if !fitToScreen { onScaleChanged(Int(round(newZoom * 100))) }
+            .onChange(of: zoom) { _, newZoom in if !fitToScreen {
+                }
                 baseZoom = newZoom
+                print("zoom:", currentScale)
+                onScaleChanged(currentScale)
             }
             .onChange(of: proxy.size) { _, _ in
                 if fitToScreen {
-                    onScaleChanged(Int(round(currentScale * 100)))
+                    print("proxy.size:", currentScale)
+                    onScaleChanged(currentScale)
                 }
             }
             .onChange(of: fitMode) { _, _ in
                 if fitToScreen {
-                    onScaleChanged(Int(round(currentScale * 100)))
+                    print("fitMode:", currentScale)
+                    onScaleChanged(currentScale)
                 }
             }
             .gesture(
                 MagnificationGesture()
                     .onChanged { v in
                         fitToScreen = false
-                        //zoom = clamp(baseZoom * v, 0.25...5)
+                        print("set zoom in gesture")
+                        zoom = clamp(baseZoom * v, 0.25...5)
                     }
-                    .onEnded { _ in baseZoom = zoom }
+                    .onEnded { _ in
+                        baseZoom = zoom
+                        print("magnify ended:", currentScale)
+                        onScaleChanged(fitToScreen ? currentScale : zoom)
+                    }
             )
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {

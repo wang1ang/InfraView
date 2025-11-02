@@ -16,9 +16,10 @@ struct ContentView: View {
     @StateObject private var store = ImageStore()
     @State private var showImporter = false
     @State private var showDeleteConfirm = false
-    @State private var scalePercent: Int = 100
+    //@State private var scalePercent: Int = 100
     //@State private var fitMode: FitMode = .fitWindowToImage
     @State private var toolbarWasVisible = true
+    @State private var statusBarWasVisible = true
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
 
     @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
@@ -40,14 +41,9 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geo in
             //let size = geo.size
-            let onScale: (Int) -> Void = { p in
-                scalePercent = p
-                StatusBarStore.shared.set("Zoom", "\(p)%")
-            }
             Viewer(store: store,
                    viewerVM: viewerVM,
-                   fitMode: fitMode,
-                   onScaleChanged: onScale
+                   fitMode: fitMode
             )
         }
         .background(
@@ -75,6 +71,10 @@ struct ContentView: View {
                 w.titleVisibility = .hidden
                 w.titlebarAppearsTransparent = true
                 if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .none }
+                
+                statusBarWasVisible = StatusBarStore.shared.isVisible
+                StatusBarStore.shared.isVisible = false
+                
                 NSCursor.setHiddenUntilMouseMoves(true)
             }
         }
@@ -84,6 +84,8 @@ struct ContentView: View {
                 w.titleVisibility = .visible
                 w.titlebarAppearsTransparent = false
                 if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .automatic }
+
+                StatusBarStore.shared.isVisible = statusBarWasVisible
             }
         }
         .onDrop(of: [UTType.fileURL, .image], isTargeted: nil) { providers in
@@ -155,7 +157,8 @@ struct ContentView: View {
             Menu(content: {
                 Slider(value: zoomBinding(), in: 0.25...5)
                 Divider(); zoomMenuContent
-            }, label: { Text("\(scalePercent)%") })
+            }, label: { Text("\(String(StatusBarStore.shared.zoomPercent ?? 100))%") })
+                //Int(round(viewerVM.zoom*100))
 
             Button { previous() } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: [])
@@ -222,13 +225,14 @@ struct Viewer: View {
     @ObservedObject var store: ImageStore
     @ObservedObject var viewerVM: ViewerViewModel
     let fitMode: FitMode
-    var onScaleChanged: (Int) -> Void
     
     @ObservedObject private var bar = StatusBarStore.shared
 
     var body: some View {
         Group {
             if let index = store.selection, index < store.imageURLs.count {
+                let url = store.imageURLs[index]
+                
                 ZStack {
                     Color(NSColor.windowBackgroundColor).ignoresSafeArea()
 
@@ -248,16 +252,30 @@ struct Viewer: View {
                                 } else { viewerVM.fitToScreen = v }
                             }),
                             fitMode: fitMode,
-                            onScaleChanged: onScaleChanged,
+                            onScaleChanged: { percent in
+                                print("prev vm.zoom: ", viewerVM.zoom)
+                                //viewerVM.zoom = percent
+                                StatusBarStore.shared.setZoom(percent: Int(round(percent * 100)))
+                            },
                             onLayoutChange: nil
                         )
-                        .id(store.imageURLs[index])
-                        .navigationTitle(store.imageURLs[index].lastPathComponent)
+                        .id(url)
+                        .navigationTitle(url.lastPathComponent)
+                        .onAppear() {
+                            updateStatus(url: url, image: img, index: index, total: store.imageURLs.count)
+                            StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
+                        }
                     } else {
                         VStack(spacing: 12) {
                             ProgressView().progressViewStyle(CircularProgressViewStyle()).scaleEffect(1.2)
                             Text("Loading...").font(.headline).foregroundColor(.secondary)
                         }
+                    }
+                }
+                .onChange(of: viewerVM.currentImage) { _, newImg in
+                    if let newImg {
+                        updateStatus(url: url, image: newImg, index: index, total: store.imageURLs.count)
+                        StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
                     }
                 }
                 .onAppear(perform: showCurrent)
@@ -269,7 +287,6 @@ struct Viewer: View {
                 .onChange(of: fitMode) { _, _ in showCurrent() }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in showCurrent() }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in showCurrent() }
-                .onAppear { viewerVM.onScaleChanged = onScaleChanged }
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }
@@ -277,6 +294,9 @@ struct Viewer: View {
         .onChange(of: bar.isVisible) { _, _ in
             guard let win = keyWindowOrFirstVisible() else { return }
             viewerVM.drive(reason: .fitToggle(true), mode: fitMode, window: win)
+        }
+        .onChange(of: viewerVM.zoom) { _, newZoom in
+            StatusBarStore.shared.setZoom(percent: Int(round(newZoom * 100)))
         }
     }
 
@@ -286,7 +306,6 @@ struct Viewer: View {
               let win = keyWindowOrFirstVisible()
         else { return }
         viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode, window: win)
-
     }
 }
 

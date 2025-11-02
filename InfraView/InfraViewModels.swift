@@ -130,7 +130,6 @@ final class ViewerViewModel: ObservableObject {
     @Published var fitToScreen = false
     @Published var currentImage: NSImage?
     @Published var loadingError: String?
-    var onScaleChanged: ((Int) -> Void)?
 
     private var baseImage: NSImage?
     private var currentURL: URL?
@@ -149,24 +148,32 @@ final class ViewerViewModel: ObservableObject {
 
     func drive(reason: Reason, mode: FitMode, window: NSWindow) {
         guard let img = currentImage else { return }
+        
+        // 先基于窗口内容区域算好 fit 比例
+        var fitScaleAccurate = sizer.accurateFitScale(for: img, in: window)
+
         switch reason {
         case .newImage:
             // 初始状态
             switch mode {
+            case .doNotFit:           fitToScreen = false; zoom = 1
             case .fitWindowToImage:   fitToScreen = false; zoom = 1
-            case .fitImageToWindow:   fitToScreen = true;  zoom = 1
-            case .fitOnlyBigToWindow: fitToScreen = isBigInCurrentWindow(img, window: window); zoom = 1
+            case .fitImageToWindow:   fitToScreen = true;  zoom = fitScaleAccurate // 1
+            case .fitOnlyBigToWindow:
+                if isBigInCurrentWindow(img, window: window) {
+                    fitToScreen = true; zoom = fitScaleAccurate // 1
+                } else { fitToScreen = false; zoom = 1 }
             case .fitOnlyBigToDesktop:
                 if sizer.isBigOnDesktop(img, window: window) {
-                    fitToScreen = true; zoom = 1
+                    fitToScreen = true; zoom = fitScaleAccurate // 1
                 } else { fitToScreen = false; zoom = 1 }
-            case .doNotFit:           fitToScreen = false; zoom = 1
             }
-
+        // TODO: remove fitToggle
         case .fitToggle(let on):
             fitToScreen = on
+            // 用 fitScaleAccurate?
             if on { zoom = 1 } // 进入 fit 模式时，zoom 统一到 1
-
+        
         case .zoom(let v):
             fitToScreen = false
             zoom = clamp(v, 0.25...5)
@@ -180,20 +187,25 @@ final class ViewerViewModel: ObservableObject {
         }
         if doResize {
             sizer.resizeWindow(toContent: targetSize, mode: aware ? mode : .fitOnlyBigToDesktop)
+            if fitToScreen {
+                fitScaleAccurate = sizer.accurateFitScale(for: img, in: window)
+                zoom = fitScaleAccurate
+            }
         }
         // ✅ 2) .fitOnlyBigToDesktop 的第二步：回退到精确缩放（只在 newImage 时执行）
         if mode == .fitOnlyBigToDesktop,
            reason == .newImage,
            sizer.isBigOnDesktop(img, window: window) {
-            let s = sizer.accurateFitScale(for: img, in: window)
-            fitToScreen = false
-            zoom = s
-            // 这里不用再 resize 了，保持刚刚收敛的窗口即可
+             let fitScaleAccurate = sizer.accurateFitScale(for: img, in: window)
+             fitToScreen = false
+             zoom = fitScaleAccurate
+             // 这里不用再 resize 了，保持刚刚收敛的窗口即可
         }
 
         // 百分比回调
-        let scale: CGFloat = fitToScreen ? sizer.accurateFitScale(for: img, in: window) : zoom
-        onScaleChanged?(Int((scale * 100).rounded()))
+        //if fitToScreen {
+        //    zoom = sizer.accurateFitScale(for: img, in: window)
+        //}
     }
 
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
@@ -250,6 +262,7 @@ final class ViewerViewModel: ObservableObject {
 
         case .fitOnlyBigToDesktop:
             if sizer.isBigOnDesktop(img, window: window) {
+                /*
                 if fitToScreen {
                     // 先 fit 驱动窗口收敛，再回退精确比例
                     let fitSz = sizer.fittedContentSize(for: img, in: window)
@@ -261,6 +274,8 @@ final class ViewerViewModel: ObservableObject {
                     let s = sizer.accurateFitScale(for: img, in: window)
                     return (scaledContentSize(for: img, scale: s), false, false) // 不需要滚动条回退补偿
                 }
+                */
+                return (sizer.fittedContentSize(for: img, in: window), true, true)
             } else {
                 return (scaledContentSize(for: img, scale: 1), true, false)
             }
@@ -301,6 +316,6 @@ final class ViewerViewModel: ObservableObject {
         currentImage = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
         
         drive(reason: .fitToggle(true), mode: fitMode, window: window)
-        onScaleChanged?(Int(round(zoom * 100)))
+        //onScaleChanged?(Int(round(zoom * 100)))
     }
 }
