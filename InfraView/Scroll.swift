@@ -24,11 +24,14 @@ struct CenteringScrollView<Content: View>: NSViewRepresentable {
     let recenterKey: AnyHashable
     @ViewBuilder var content: () -> Content
 
+    @preconcurrency @MainActor
     final class Coordinator {
         var scrollView: NSScrollView!
         var container: NSView!              // ← 容器作为 documentView（固定引用）
         var hosting: NSHostingView<Content>!// ← 实际内容
         var lastKey: AnyHashable?
+        
+        nonisolated deinit {}
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
