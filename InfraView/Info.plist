@@ -18,7 +18,30 @@
 				<string>public.image</string>
 			</array>
 		</dict>
-		<dict/>
 	</array>
+
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+	<dict>
+		<key>UTTypeIdentifier</key>
+		<string>public.webp</string>
+		<key>UTTypeDescription</key>
+		<string>WebP image</string>
+		<key>UTTypeConformsTo</key>
+		<array>
+		<string>public.image</string>
+		</array>
+		<key>UTTypeTagSpecification</key>
+		<dict>
+		<key>public.filename-extension</key>
+		<array>
+			<string>webp</string>
+		</array>
+		<key>public.mime-type</key>
+		<string>image/webp</string>
+		</dict>
+	</dict>
+	</array>
+
 </dict>
 </plist>
