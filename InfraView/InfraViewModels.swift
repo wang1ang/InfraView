@@ -259,27 +259,9 @@ final class ViewerViewModel: ObservableObject {
                 // 小图 → 用 1x 大小（带屏幕上限）
                 return (scaledContentSize(for: img, scale: 1), false, true)
             }
-
         case .fitOnlyBigToDesktop:
-            if sizer.isBigOnDesktop(img, window: window) {
-                /*
-                if fitToScreen {
-                    // 先 fit 驱动窗口收敛，再回退精确比例
-                    let fitSz = sizer.fittedContentSize(for: img, in: window)
-                    // 返回 aware=true 让 sizer 计算滚动条
-                    // 回调后 drive() 已将 zoom=1；之后用户操作会再触发
-                    return (fitSz, true, true)
-                } else {
-                    // 回退后的精确缩放：用 accurateScale 算内容大小
-                    let s = sizer.accurateFitScale(for: img, in: window)
-                    return (scaledContentSize(for: img, scale: s), false, false) // 不需要滚动条回退补偿
-                }
-                */
-                return (sizer.fittedContentSize(for: img, in: window), true, true)
-            } else {
-                return (scaledContentSize(for: img, scale: 1), true, false)
-            }
-
+            let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
+            return (sz, true, false)
         case .fitWindowToImage:
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
             let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
