@@ -16,12 +16,15 @@ enum RecenterMode {
     case cursor
 }
 
-/// 仅在 token 变化时，对“可滚动轴”滚动一次；不可滚轴不动，保持原生效果
+/// SwiftUI 和 AppKit 之间的桥接协议
+/// SwiftUI 是声明式，macOS 底层 UI 还是 AppKit （基于 NSView）
+/// 返回一个原生 AppKit 视图： NSView 对象 Marker
 struct ScrollAligner: NSViewRepresentable {
     let mode: RecenterMode
 
     var onMarqueeFinished: ((NSRect) -> Void)? = nil   // 返回 document 坐标的选框
 
+    // 透明交互层，覆盖在 NSScrollView 区域，捕捉鼠标事件
     final class Marker: NSView {
         weak var coord: Coord?
         var onMarqueeFinished: ((NSRect) -> Void)?
@@ -67,20 +70,18 @@ struct ScrollAligner: NSViewRepresentable {
             let dy = event.deltaY
             guard dx != 0 || dy != 0 else { return }
 
-            let clip = sv.contentView
-            var b = clip.bounds
+            let clip = sv.contentView  // 可视窗口 NSClipView
+            var b = clip.bounds  // 可视区域的矩形
             b.origin.x -= dx
             b.origin.y -= dy
+            
+            print("drag scroll to:", b.origin)
 
-            if let doc = sv.documentView {
-                let s = doc.bounds.size
-                b.origin.x = min(max(0, b.origin.x), s.width - b.width)
-                b.origin.y = min(max(0, b.origin.y), s.height - b.height)
-            }
-
-            clip.setBoundsOrigin(b.origin)
-            sv.reflectScrolledClipView(clip)
-            NSCursor.closedHand.set()            
+            let constrained = clip.constrainBoundsRect(b)
+            clip.setBoundsOrigin(constrained.origin)
+            // 让 NSScrollView 同步 UI，更新滚动条位置
+            // sv.reflectScrolledClipView(clip)
+            NSCursor.closedHand.set()
         }
 
         override func rightMouseUp(with event: NSEvent) {
@@ -163,7 +164,7 @@ struct ScrollAligner: NSViewRepresentable {
         v.coord = context.coordinator
         v.onMarqueeFinished = onMarqueeFinished
 
-        //v.requestAttach = { m in self.attachIfNeeded(m, context) }
+        v.requestAttach = { m in self.attachIfNeeded(m, context) }
         //self.attachIfNeeded(v, context)
 
         return v
@@ -199,6 +200,8 @@ struct ScrollAligner: NSViewRepresentable {
                     let clip = sv.contentView
                     marker.frame = clip.bounds
                     marker.autoresizingMask = [.width, .height]
+                    // 把 Marker 挂在 AppKit 的 clipView 上，
+                    // 并且放在 documentView 之上
                     clip.addSubview(marker, positioned: .above, relativeTo: sv.documentView)
                 }
                 // Align at the first time
