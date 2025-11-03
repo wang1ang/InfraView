@@ -45,6 +45,9 @@ struct CenteringScrollView<Content: View>: NSViewRepresentable {
         sv.hasVerticalScroller   = true
         sv.usesPredominantAxisScrolling = true
 
+        sv.verticalScrollElasticity   = .none
+        sv.horizontalScrollElasticity = .none
+
         // 默认 NSClipView
         let clip = NSClipView(frame: sv.contentView.frame)
         clip.drawsBackground = false
@@ -163,7 +166,120 @@ struct ScrollAligner: NSViewRepresentable {
     let mode: RecenterMode
     let token: UUID   // 想对齐一次就换一个 UUID()
 
-    final class Marker: NSView {}
+    enum InteractionMode { case none, pan, marquee }
+    var interactionMode: InteractionMode = .pan
+    var onMarqueeFinished: ((NSRect) -> Void)? = nil   // 返回 document 坐标的选框
+
+    final class Marker: NSView {
+        weak var coord: Coord?
+
+        var requestAttach: ((Marker) -> Void)?
+        var mode: InteractionMode = .pan
+        var onMarqueeFinished: ((NSRect) -> Void)?
+        // 选框绘制
+        private var startDoc: NSPoint?
+        private var marqueeLayer: CAShapeLayer?
+
+        // 首次进入窗口/父视图时再尝试 attach（确保首帧就挂到 clipView 顶层）
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); requestAttach?(self) }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); requestAttach?(self) }
+
+        // 透明层也能吃事件
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard mode != .none else { return nil }
+            return self.bounds.contains(point) ? self : nil
+        }
+        override func rightMouseDown(with event: NSEvent) {
+            print("rightMouseDown")
+            guard mode == .pan else { return }
+            NSCursor.openHand.push()
+        }
+        override func rightMouseDragged(with event: NSEvent) {
+            guard mode == .pan, let sv = coord?.sv else { return }
+            let dx = event.deltaX
+            let dy = event.deltaY
+            guard dx != 0 || dy != 0 else { return }
+
+            let clip = sv.contentView
+            var b = clip.bounds
+            b.origin.x -= dx
+            b.origin.y -= dy
+
+            if let doc = sv.documentView {
+                let s = doc.bounds.size
+                b.origin.x = min(max(0, b.origin.x), s.width - b.width)
+                b.origin.y = min(max(0, b.origin.y), s.height - b.height)
+            }
+
+            clip.setBoundsOrigin(b.origin)
+            sv.reflectScrolledClipView(clip)
+            NSCursor.closedHand.set()            
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            guard mode == .pan else { return }
+            // restore cursor
+            NSCursor.pop()
+        }
+        // MARK: - Marquee（左键）
+        override func mouseDown(with event: NSEvent) {
+            guard mode == .marquee, let sv = coord?.sv,
+                  let doc = sv.documentView else { return }
+            let win = event.locationInWindow
+            let inScroll = sv.convert(win, from: nil)
+            startDoc = sv.contentView.convert(inScroll, to: doc)
+            ensureMarqueeLayer()
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard mode == .marquee, let sv = coord?.sv,
+                  let doc = sv.documentView, let s = startDoc else { return }
+            let win = event.locationInWindow
+            let inScroll = sv.convert(win, from: nil)
+            let cur = sv.contentView.convert(inScroll, to: doc)
+            let rect = NSRect(x: min(s.x, cur.x), y: min(s.y, cur.y),
+                              width: abs(cur.x - s.x), height: abs(cur.y - s.y))
+            drawMarquee(rect, in: sv)
+        }
+        override func mouseUp(with event: NSEvent) {
+            guard mode == .marquee, let sv = coord?.sv,
+                  let doc = sv.documentView, let s = startDoc else { return }
+            let win = event.locationInWindow
+            let inScroll = sv.convert(win, from: nil)
+            let cur = sv.contentView.convert(inScroll, to: doc)
+            let rect = NSRect(x: min(s.x, cur.x), y: min(s.y, cur.y),
+                              width: abs(cur.x - s.x), height: abs(cur.y - s.y))
+            startDoc = nil
+            clearMarquee()
+            onMarqueeFinished?(rect)   // 回调：document 坐标
+        }
+  
+        private func ensureMarqueeLayer() {
+            if marqueeLayer == nil {
+                let l = CAShapeLayer()
+                l.fillColor = NSColor.clear.cgColor
+                l.strokeColor = NSColor.controlAccentColor.cgColor
+                l.lineDashPattern = [4, 3] as [NSNumber]
+                l.lineWidth = 1
+                self.wantsLayer = true
+                self.layer?.addSublayer(l)
+                marqueeLayer = l
+            }
+        }
+        private func drawMarquee(_ rectDoc: NSRect, in sv: NSScrollView) {
+            guard let l = marqueeLayer,
+                  let doc = sv.documentView else { return }
+            // 把 doc 坐标矩形变换到 clipView（也就是 Marker）坐标来画
+            let a = sv.contentView.convert(rectDoc.origin, from: doc)
+            let b = sv.contentView.convert(NSPoint(x: rectDoc.maxX, y: rectDoc.maxY), from: doc)
+            let r = NSRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                           width: abs(b.x - a.x), height: abs(b.y - a.y))
+            l.frame = self.bounds
+            l.path = CGPath(rect: r, transform: nil)
+        }
+        private func clearMarquee() {
+            marqueeLayer?.path = nil
+        }
+    }
     final class Coord {
         weak var sv: NSScrollView?
         var lastToken: UUID?
@@ -172,17 +288,30 @@ struct ScrollAligner: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let v = Marker()
-        DispatchQueue.main.async { attachIfNeeded(v, context) }
+        v.coord = context.coordinator
+        v.mode = interactionMode
+        v.onMarqueeFinished = onMarqueeFinished
+
+        v.requestAttach = { m in self.attachIfNeeded(m, context) }
+        self.attachIfNeeded(v, context)
+
         return v
     }
 
     func updateNSView(_ v: NSView, context: Context) {
+        if let m = v as? Marker {
+            m.coord = context.coordinator
+            m.mode  = interactionMode
+            m.onMarqueeFinished = onMarqueeFinished
+            m.requestAttach = { m in
+                self.attachIfNeeded(m, context)
+            }
+        }
         attachIfNeeded(v, context)
         guard let sv = context.coordinator.sv else { return }
         if context.coordinator.lastToken != token {
             context.coordinator.lastToken = token
-            // 等一拍，让 ScrollView 完成这轮布局与滚动条判定
-            scheduleAlign(sv)
+            DispatchQueue.main.async { self.alignOnce(sv) }
         }
     }
 
@@ -194,51 +323,20 @@ struct ScrollAligner: NSViewRepresentable {
         while let cur = p {
             if let sv = cur as? NSScrollView {
                 context.coordinator.sv = sv
-                sv.usesPredominantAxisScrolling = true   // 更自然的滚轮手感
+                // 把 Marker 放到 clipView 顶层覆盖整个可视区
+                if let marker = v as? Marker {
+                    let clip = sv.contentView
+                    marker.frame = clip.bounds
+                    marker.autoresizingMask = [.width, .height]
+                    clip.addSubview(marker, positioned: .above, relativeTo: sv.documentView)
+                }
                 // Align at the first time
-                DispatchQueue.main.async { self.scheduleAlign(sv) }
+                DispatchQueue.main.async { self.alignOnce(sv) }
                 break
             }
             p = cur.superview
         }
     }
-
-    private let settleMaxTries = 4
-    private let settleEps: CGFloat = 1.0
-
-    /// 最多四拍：等待 clip/doc/可滚状态稳定后再对齐
-    private func scheduleAlign(_ sv: NSScrollView) {
-        var tries = 0
-        var lastClip = CGSize.zero
-        var lastDoc  = CGSize.zero
-        var lastCanH: Bool? = nil
-        var lastCanV: Bool? = nil
-
-        func step() {
-            tries += 1
-            sv.layoutSubtreeIfNeeded()
-
-            let clip = sv.contentView.bounds.size
-            let doc  = sv.documentView?.bounds.size ?? .zero
-
-            let eps: CGFloat = settleEps
-            let canH = doc.width  > clip.width  + eps
-            let canV = doc.height > clip.height + eps
-
-            let stable = (clip == lastClip && doc == lastDoc &&
-                          canH == lastCanH && canV == lastCanV)
-
-            if stable || tries >= settleMaxTries {
-                alignOnce(sv)
-            } else {
-                lastClip = clip; lastDoc = doc
-                lastCanH = canH;  lastCanV = canV
-                DispatchQueue.main.async { step() }
-            }
-        }
-        DispatchQueue.main.async { step() }
-    }
-
 
     private func alignOnce(_ sv: NSScrollView) {
         guard let docView = sv.documentView else { return }
