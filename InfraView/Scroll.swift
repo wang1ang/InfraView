@@ -158,17 +158,20 @@ struct ScrollAligner: NSViewRepresentable {
     func makeCoordinator() -> Coord { Coord() }
 
     func makeNSView(context: Context) -> NSView {
+        print("makeNSView")
         let v = Marker()
         v.coord = context.coordinator
         v.onMarqueeFinished = onMarqueeFinished
 
-        v.requestAttach = { m in self.attachIfNeeded(m, context) }
-        self.attachIfNeeded(v, context)
+        //v.requestAttach = { m in self.attachIfNeeded(m, context) }
+        //self.attachIfNeeded(v, context)
 
         return v
     }
 
     func updateNSView(_ v: NSView, context: Context) {
+        print("updateNSView")
+        /*
         if let m = v as? Marker {
             m.coord = context.coordinator
             m.onMarqueeFinished = onMarqueeFinished
@@ -177,13 +180,15 @@ struct ScrollAligner: NSViewRepresentable {
             }
         }
         attachIfNeeded(v, context)
-        guard let sv = context.coordinator.sv else { return }
-        DispatchQueue.main.async { self.alignOnce(sv) }
+        */
+        //guard let sv = context.coordinator.sv else { return }
+        //DispatchQueue.main.async { self.alignOnce(sv) }
     }
 
     // MARK: - Helpers
 
     private func attachIfNeeded(_ v: NSView, _ context: Context) {
+        print("attachIfNeeded")
         guard context.coordinator.sv == nil else { return }
         var p: NSView? = v
         while let cur = p {
@@ -205,6 +210,7 @@ struct ScrollAligner: NSViewRepresentable {
     }
 
     private func alignOnce(_ sv: NSScrollView) {
+        print("alignOnce")
         guard let docView = sv.documentView else { return }
         sv.layoutSubtreeIfNeeded()
 
