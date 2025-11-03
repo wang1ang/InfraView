@@ -166,36 +166,31 @@ struct ScrollAligner: NSViewRepresentable {
     let mode: RecenterMode
     let token: UUID   // 想对齐一次就换一个 UUID()
 
-    enum InteractionMode { case none, pan, marquee }
-    var interactionMode: InteractionMode = .pan
     var onMarqueeFinished: ((NSRect) -> Void)? = nil   // 返回 document 坐标的选框
 
     final class Marker: NSView {
         weak var coord: Coord?
-
-        var requestAttach: ((Marker) -> Void)?
-        var mode: InteractionMode = .pan
         var onMarqueeFinished: ((NSRect) -> Void)?
+
         // 选框绘制
         private var startDoc: NSPoint?
         private var marqueeLayer: CAShapeLayer?
 
         // 首次进入窗口/父视图时再尝试 attach（确保首帧就挂到 clipView 顶层）
+        var requestAttach: ((Marker) -> Void)?
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); requestAttach?(self) }
         override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); requestAttach?(self) }
 
         // 透明层也能吃事件
         override func hitTest(_ point: NSPoint) -> NSView? {
-            guard mode != .none else { return nil }
             return self.bounds.contains(point) ? self : nil
         }
         override func rightMouseDown(with event: NSEvent) {
             print("rightMouseDown")
-            guard mode == .pan else { return }
             NSCursor.openHand.push()
         }
         override func rightMouseDragged(with event: NSEvent) {
-            guard mode == .pan, let sv = coord?.sv else { return }
+            guard let sv = coord?.sv else { return }
             let dx = event.deltaX
             let dy = event.deltaY
             guard dx != 0 || dy != 0 else { return }
@@ -217,13 +212,11 @@ struct ScrollAligner: NSViewRepresentable {
         }
 
         override func rightMouseUp(with event: NSEvent) {
-            guard mode == .pan else { return }
-            // restore cursor
             NSCursor.pop()
         }
         // MARK: - Marquee（左键）
         override func mouseDown(with event: NSEvent) {
-            guard mode == .marquee, let sv = coord?.sv,
+            guard let sv = coord?.sv,
                   let doc = sv.documentView else { return }
             let win = event.locationInWindow
             let inScroll = sv.convert(win, from: nil)
@@ -231,7 +224,7 @@ struct ScrollAligner: NSViewRepresentable {
             ensureMarqueeLayer()
         }
         override func mouseDragged(with event: NSEvent) {
-            guard mode == .marquee, let sv = coord?.sv,
+            guard let sv = coord?.sv,
                   let doc = sv.documentView, let s = startDoc else { return }
             let win = event.locationInWindow
             let inScroll = sv.convert(win, from: nil)
@@ -241,7 +234,7 @@ struct ScrollAligner: NSViewRepresentable {
             drawMarquee(rect, in: sv)
         }
         override func mouseUp(with event: NSEvent) {
-            guard mode == .marquee, let sv = coord?.sv,
+            guard let sv = coord?.sv,
                   let doc = sv.documentView, let s = startDoc else { return }
             let win = event.locationInWindow
             let inScroll = sv.convert(win, from: nil)
@@ -260,6 +253,7 @@ struct ScrollAligner: NSViewRepresentable {
                 l.strokeColor = NSColor.controlAccentColor.cgColor
                 l.lineDashPattern = [4, 3] as [NSNumber]
                 l.lineWidth = 1
+                l.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
                 self.wantsLayer = true
                 self.layer?.addSublayer(l)
                 marqueeLayer = l
@@ -289,7 +283,6 @@ struct ScrollAligner: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let v = Marker()
         v.coord = context.coordinator
-        v.mode = interactionMode
         v.onMarqueeFinished = onMarqueeFinished
 
         v.requestAttach = { m in self.attachIfNeeded(m, context) }
@@ -301,7 +294,6 @@ struct ScrollAligner: NSViewRepresentable {
     func updateNSView(_ v: NSView, context: Context) {
         if let m = v as? Marker {
             m.coord = context.coordinator
-            m.mode  = interactionMode
             m.onMarqueeFinished = onMarqueeFinished
             m.requestAttach = { m in
                 self.attachIfNeeded(m, context)
