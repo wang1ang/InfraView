@@ -18,6 +18,15 @@ struct WheelZoomCatcher: NSViewRepresentable {
         var onZoom: ((CGFloat, NSPoint) -> Void)!
         var monitor: Any?
 
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            // 视图离开当前窗口时移除旧的本地事件监视器
+            if newWindow == nil, let m = monitor {
+                NSEvent.removeMonitor(m)
+                monitor = nil
+            }
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if monitor == nil {
@@ -69,14 +78,12 @@ struct ZoomableImage: View {
 
     @State private var baseZoom: CGFloat = 1
     @State private var recenterMode: RecenterMode = .imageCenter
-    @State private var recenterToken = UUID()
     
     private func handleWheelZoom(factor: CGFloat, mouseInWindow: NSPoint) {
         fitToScreen = false
         print("set zoom in handleWheelZoom")
         zoom = clamp(zoom * factor, 0.25...5)
         recenterMode = .imageCenter
-        recenterToken = UUID()
     }
     
     var body: some View {
@@ -111,31 +118,16 @@ struct ZoomableImage: View {
             //let contentSize = CGSize(width: contentWf, height: contentHf)
             let wheelLayer = WheelZoomCatcher(allowed: [[.option], [.command]], onZoom: handleWheelZoom)
 
-            Group {
-                if needScroll {
-                    ScrollView([.horizontal, .vertical]) {
-                        content
-                            .background(
-                                ScrollAligner(mode: recenterMode, token: recenterToken)
-                            )
-                    }
-                    .overlay(
-                        wheelLayer
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView([.horizontal, .vertical]) {
+                content
+                    .background(
+                        ScrollAligner(mode: recenterMode)
                     )
-                    //ScrollView([.horizontal, .vertical]) { content }
-                    /*
-                    CenteringScrollView(
-                        contentSize: contentSize, recenterMode: recenterMode, recenterKey: recenterToken) {
-                            AnyView(content)
-                    }
-                     */
-                } else {
-                    content
-                        .background(wheelLayer)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity) // 居中
-                }
             }
+            .overlay(
+                wheelLayer
+                    //.frame(maxWidth: .infinity, maxHeight: .infinity)
+            )
             .onAppear {
                 print("onAppear:", currentScale)
                 onScaleChanged(currentScale)
@@ -144,7 +136,6 @@ struct ZoomableImage: View {
             
             // refresh displayed scale
             .onChange(of: fitToScreen) { _, newFit in
-                //let cs = computeScale(isFit: newFit, baseW: baseW, baseH: baseH, maxW: maxW, maxH: maxH, zoom: zoom)
                 print("fitToScreen:", currentScale)
                 onScaleChanged(currentScale)
             }
@@ -185,19 +176,12 @@ struct ZoomableImage: View {
                     win.toggleFullScreen(nil)
                 }
             }
+            /*
             .onReceive(NotificationCenter.default.publisher(for: .infraRecenter)) { note in
                 guard let mode = note.object as? RecenterMode else { return }
                 recenterMode = mode
-                recenterToken = UUID() // change token
-            }
+            }*/
         }
         .background(Color.black)
     }
-}
-
-// MARK: - Helpers
-
-private func computeScale(isFit: Bool, baseW: CGFloat, baseH: CGFloat, maxW: CGFloat, maxH: CGFloat, zoom: CGFloat) -> CGFloat {
-    let fitScale = min(maxW / baseW, maxH / baseH)
-    return isFit ? fitScale : zoom
 }
