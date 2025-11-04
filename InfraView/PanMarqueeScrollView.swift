@@ -23,6 +23,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var hostingView: NSHostingView<Content>?
         var onSelectionTap: ((CGPoint) -> Void)?
         
+        private var suppressMarquee = false
+        
         var selectionStartInDoc: NSPoint?
         let overlayView = NSView()
         let selectionLayer = CAShapeLayer()
@@ -67,29 +69,36 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             guard let sv = scrollView,
                   let doc = sv.documentView else { return }
             let cv = sv.contentView
-            
             // 把手势位置从 contentView 坐标转到 documentView 坐标
-            let pInContent = g.location(in: cv)
-            let p = cv.convert(pInContent, to: doc)
+            let p = cv.convert(g.location(in: cv), to: doc)
+            let pOverlay = overlayView.convert(p, from: doc)
             
             switch g.state {
             case .began:
+                if let path = selectionLayer.path, path.contains(pOverlay) {
+                    suppressMarquee = true
+                    return
+                }
+                suppressMarquee = false
                 selectionStartInDoc = p
                 ensureOverlay(on: doc)                 // 准备 overlay
                 drawSelection(from: p, to: p)          // 先画一个 0 大小的框
             case .changed:
-                guard let s = selectionStartInDoc else { return }
+                guard !suppressMarquee, let s = selectionStartInDoc else { return }
                 drawSelection(from: s, to: p)
             case .ended, .cancelled:
-                guard let s = selectionStartInDoc else { break }
+                if suppressMarquee {
+                    onSelectionTap?(p)
+                    suppressMarquee = false
+                    return
+                }
+                guard let s = selectionStartInDoc else { return }
                 let r = normalizedRect(s, p)
                 // 清掉
                 //drawSelection(from: .zero, to: .zero)
                 selectionStartInDoc = nil
                 // 把结果回调给 SwiftUI（可选）
-                if let vc = onFinished {
-                    vc(r)
-                }
+                onFinished?(r)
             default:
                 break
             }
