@@ -12,6 +12,7 @@ import AppKit
 /// 仅负责 UI 层级结构（不含任何功能逻辑）
 struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     let content: Content
+    var onSelectionTap: ((CGPoint) -> Void)? = nil
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -20,6 +21,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     final class Coordinator {
         var scrollView: NSScrollView?
         var hostingView: NSHostingView<Content>?
+        var onSelectionTap: ((CGPoint) -> Void)?
         
         var selectionStartInDoc: NSPoint?
         let overlayView = NSView()
@@ -56,8 +58,17 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
         @objc func handleOverlayClick(_ g: NSClickGestureRecognizer) {
-            let p = g.location(in: overlayView)
-            if let path = selectionLayer.path, !path.contains(p) {
+            guard let overlay = overlayView.layer, let path = selectionLayer.path else { return }
+            let pOverlay = g.location(in: overlayView)  // overlay 坐标
+
+            if path.contains(pOverlay) {
+                // 点在框内：把点位换到文档坐标后回调给你做放大
+                if let doc = overlayView.superview {     // documentView 就是 overlay 的 superview
+                    let pDoc = overlayView.convert(pOverlay, to: doc)
+                    onSelectionTap?(pDoc)                // 交给外部放大
+                }
+            } else {
+                // 点在框外：清除选框
                 selectionLayer.path = nil
             }
         }
@@ -149,6 +160,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         context.coordinator.scrollView = scrollView
         context.coordinator.hostingView = hostingView
+        context.coordinator.onSelectionTap = onSelectionTap
 
 
         // （以后会在这里添加：overlayView + 手势等）
