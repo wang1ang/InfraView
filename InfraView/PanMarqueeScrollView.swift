@@ -29,45 +29,24 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var onFinished: ((CGRect) -> Void)?
         
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
-            guard let sv = scrollView else { return }
+            guard let sv = scrollView, let doc = sv.documentView else { return }
             let cv = sv.contentView
+            guard g.state == .began || g.state == .changed else { return }
 
-            switch g.state {
-            case .began, .changed:
-                // 本次增量（把累计清零，便于逐帧处理）
-                let t = g.translation(in: cv)
-                g.setTranslation(.zero, in: cv)
+            let t = g.translation(in: cv)
+            g.setTranslation(.zero, in: cv)
+            var o = cv.bounds.origin
+            o.x -= t.x; o.y -= t.y
 
-                // 根据拖拽更新目标 origin（注意 y 方向取反）
-                var origin = cv.bounds.origin
-                origin.x -= t.x
-                origin.y -= t.y
+            let dw = doc.bounds.width, dh = doc.bounds.height
+            let cw = cv.bounds.width, ch = cv.bounds.height
 
-                // 按轴判断是否可滚；不可滚则锁定到“居中”位置
-                if let doc = sv.documentView {
-                    let docW = doc.bounds.width,  docH = doc.bounds.height
-                    let clipW = cv.bounds.width,  clipH = cv.bounds.height
+            // 不能滚就锁定居中
+            o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
+            o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
 
-                    // 水平
-                    if docW <= clipW {
-                        origin.x = (docW - clipW) / 2.0   // 居中（负值）
-                    } else {
-                        origin.x = min(max(0, origin.x), docW - clipW)
-                    }
-
-                    // 垂直
-                    if docH <= clipH {
-                        origin.y = (docH - clipH) / 2.0   // 居中（负值）
-                    } else {
-                        origin.y = min(max(0, origin.y), docH - clipH)
-                    }
-                }
-
-                cv.scroll(to: origin)
-                sv.reflectScrolledClipView(cv)  // 同步滚动条/可见性
-            default:
-                break
-            }
+            cv.scroll(to: o)
+            sv.reflectScrolledClipView(cv)
         }
         @objc func handleOverlayClick(_ g: NSClickGestureRecognizer) {
             guard let overlay = overlayView.layer, let path = selectionLayer.path else { return }
