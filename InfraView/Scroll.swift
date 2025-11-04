@@ -44,11 +44,17 @@ struct ScrollAligner: NSViewRepresentable {
             super.viewDidMoveToWindow();
             requestAttach?(self)
             NSCursor.arrow.set()
+            // color
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.5).cgColor
         }
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
             requestAttach?(self)
             NSCursor.arrow.set()
+            // color
+            wantsLayer = true
+            layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.5).cgColor
         }
         
         // 不拦截滚轮/触控板滚动，交回给 NSScrollView
@@ -72,10 +78,9 @@ struct ScrollAligner: NSViewRepresentable {
 
             let clip = sv.contentView  // 可视窗口 NSClipView
             var b = clip.bounds  // 可视区域的矩形
+            print(b)
             b.origin.x -= dx
             b.origin.y -= dy
-            
-            print("drag scroll to:", b.origin)
 
             let constrained = clip.constrainBoundsRect(b)
             clip.setBoundsOrigin(constrained.origin)
@@ -94,20 +99,34 @@ struct ScrollAligner: NSViewRepresentable {
         // MARK: - Marquee（左键）
         override func mouseDown(with event: NSEvent) {
             print("mouseDown")
+            // ScrollView 和内容层 documentView
             guard let sv = coord?.sv,
                   let doc = sv.documentView else { return }
+            // 只有第一响应者能继续收到 mouseDragged、mouseUp 等后续事件。
             window?.makeFirstResponder(self)
+            // 点击坐标
             let win = event.locationInWindow
+            print("win:", win)
+            /*
             let inScroll = sv.convert(win, from: nil)
+            print("inScroll:", inScroll)
             startDoc = sv.contentView.convert(inScroll, to: doc)
+            print("startDoc:", startDoc)
+            */
+            startDoc = win
             ensureMarqueeLayer()
+            let rect = NSRect(x: win.x, y: win.y, width: 100, height: 80)
+            drawMarquee(rect, in: sv)
         }
         override func mouseDragged(with event: NSEvent) {
             guard let sv = coord?.sv,
                   let doc = sv.documentView, let s = startDoc else { return }
             let win = event.locationInWindow
+            /*
             let inScroll = sv.convert(win, from: nil)
             let cur = sv.contentView.convert(inScroll, to: doc)
+             */
+            let cur = win
             let rect = NSRect(x: min(s.x, cur.x), y: min(s.y, cur.y),
                               width: abs(cur.x - s.x), height: abs(cur.y - s.y))
             drawMarquee(rect, in: sv)
@@ -139,13 +158,18 @@ struct ScrollAligner: NSViewRepresentable {
             }
         }
         private func drawMarquee(_ rectDoc: NSRect, in sv: NSScrollView) {
+            print("rectDoc:", rectDoc)
             guard let l = marqueeLayer,
                   let doc = sv.documentView else { return }
             // 把 doc 坐标矩形变换到 clipView（也就是 Marker）坐标来画
             let a = sv.contentView.convert(rectDoc.origin, from: doc)
             let b = sv.contentView.convert(NSPoint(x: rectDoc.maxX, y: rectDoc.maxY), from: doc)
-            let r = NSRect(x: min(a.x, b.x), y: min(a.y, b.y),
+            let vis = sv.documentVisibleRect
+            let r = NSRect(x: min(a.x, b.x) + vis.minX, y: min(a.y, b.y),
                            width: abs(b.x - a.x), height: abs(b.y - a.y))
+            
+            print("r:", r)
+            print("vis:", vis)
             l.frame = self.bounds
             l.path = CGPath(rect: r, transform: nil)
         }
@@ -198,11 +222,13 @@ struct ScrollAligner: NSViewRepresentable {
                 // 把 Marker 放到 clipView 顶层覆盖整个可视区
                 if let marker = v as? Marker {
                     let clip = sv.contentView
-                    marker.frame = clip.bounds
-                    marker.autoresizingMask = [.width, .height]
+                    var f = clip.bounds
+                    print("f:", f)
+                    f.origin = .zero
                     // 把 Marker 挂在 AppKit 的 clipView 上，
                     // 并且放在 documentView 之上
-                    clip.addSubview(marker, positioned: .above, relativeTo: sv.documentView)
+                    
+                    clip.addSubview(marker, positioned: .above, relativeTo: sv.contentView)
                 }
                 // Align at the first time
                 DispatchQueue.main.async { self.alignOnce(sv) }
