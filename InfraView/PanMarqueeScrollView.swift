@@ -29,30 +29,42 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var onFinished: ((CGRect) -> Void)?
         
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
-            guard let scrollView = scrollView else { return }
-            let contentView = scrollView.contentView
+            guard let sv = scrollView else { return }
+            let cv = sv.contentView
 
             switch g.state {
             case .began, .changed:
-                // 获取拖拽位移（与上一次事件的差）
-                let t = g.translation(in: contentView)
-                g.setTranslation(.zero, in: contentView)
+                // 本次增量（把累计清零，便于逐帧处理）
+                let t = g.translation(in: cv)
+                g.setTranslation(.zero, in: cv)
 
-                var origin = contentView.bounds.origin
+                // 根据拖拽更新目标 origin（注意 y 方向取反）
+                var origin = cv.bounds.origin
                 origin.x -= t.x
                 origin.y -= t.y
 
-                // 边界夹紧
-                if let doc = scrollView.documentView {
-                    let maxX = max(0, doc.bounds.width  - contentView.bounds.width)
-                    let maxY = max(0, doc.bounds.height - contentView.bounds.height)
-                    origin.x = min(max(0, origin.x), maxX)
-                    origin.y = min(max(0, origin.y), maxY)
+                // 按轴判断是否可滚；不可滚则锁定到“居中”位置
+                if let doc = sv.documentView {
+                    let docW = doc.bounds.width,  docH = doc.bounds.height
+                    let clipW = cv.bounds.width,  clipH = cv.bounds.height
+
+                    // 水平
+                    if docW <= clipW {
+                        origin.x = (docW - clipW) / 2.0   // 居中（负值）
+                    } else {
+                        origin.x = min(max(0, origin.x), docW - clipW)
+                    }
+
+                    // 垂直
+                    if docH <= clipH {
+                        origin.y = (docH - clipH) / 2.0   // 居中（负值）
+                    } else {
+                        origin.y = min(max(0, origin.y), docH - clipH)
+                    }
                 }
 
-                contentView.scroll(to: origin)
-                // 不需要 reflectScrolledClipView，系统会自动同步
-                scrollView.reflectScrolledClipView(contentView)
+                cv.scroll(to: origin)
+                sv.reflectScrolledClipView(cv)  // 同步滚动条/可见性
             default:
                 break
             }
