@@ -4,7 +4,7 @@
 //
 //  Created by 王洋 on 4/11/2025.
 //
-
+// TODO: 切图的时候保留滚动条位置。
 import SwiftUI
 import AppKit
 
