@@ -51,6 +51,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var baseSize: CGSize = .zero
         private var wheelMonitor: Any?
         
+        var cachedClickRecognizer: NSClickGestureRecognizer?
         
         func installWheelMonitor() {
             guard wheelMonitor == nil else { return }
@@ -64,56 +65,43 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         private func handleWheel(_ e: NSEvent) -> NSEvent? {
             guard let sv = scrollView,
-                  e.modifierFlags.contains(.command) else { return e } // 非 ⌘ 滚轮 → 放行
+                  e.modifierFlags.contains(.command),
+                  let getZ = getZoom,
+                  let setZ = setZoom,
+                  let doc = sv.documentView else { return e }
 
-            // 缩放因子（滚轮向上放大、向下缩小）
-            let delta = e.scrollingDeltaY      // 正负取决于系统设置；可按需取反
-            let factor: CGFloat
-            if delta > 0 {
-                factor = 1.1
-            } else if delta < 0 {
-                factor = 1 / 1.1
-            } else {
-                return e
-            }
+            // 1️⃣ 计算新的缩放比例
+            let factor: CGFloat = e.scrollingDeltaY > 0 ? 1.1 : (e.scrollingDeltaY < 0 ? 1/1.1 : 1)
+            guard factor != 1 else { return e }
 
-            guard let getZ = getZoom, let setZ = setZoom else { return e }
             let oldZ = max(0.01, getZ())
             let newZ = min(10.0, max(0.05, oldZ * factor))
-            if abs(newZ - oldZ) < 1e-3 { return nil }  // 吃掉事件即可
+            if abs(newZ - oldZ) < 1e-3 { return nil }
 
-            // 以鼠标在 contentView 的位置为锚点
+            // 2️⃣ 以鼠标在 contentView 的位置为锚点
             let cv = sv.contentView
-            let doc = sv.documentView!
             let mouseInWin = e.locationInWindow
             let mouseInCV  = cv.convert(mouseInWin, from: nil)
-            let pDocBefore = cv.convert(mouseInCV, to: doc) // 文档坐标中的“锚点”
+            let mouseInDoc = cv.convert(mouseInCV, to: doc) // 文档坐标中的“锚点”
 
-            // 先更新 zoom（外层会据此重建 ZoomedContent 并更新 documentView.size）
+            // 3️⃣ 更新 zoom 并计算新滚动偏移
             setZ(newZ)
+            let scale = newZ / oldZ
+            let newDocSize = CGSize(width: baseSize.width * newZ, height: baseSize.height * newZ)
+            var newOrigin = NSPoint(
+                x: mouseInDoc.x * scale - (cv.bounds.width / 2),
+                y: mouseInDoc.y * scale - (cv.bounds.height / 2)
+            )
 
-            // 计算缩放后的文档尺寸 & 同一锚点的新文档坐标
-            let oldSize = CGSize(width: baseSize.width * oldZ, height: baseSize.height * oldZ)
-            let newSize = CGSize(width: baseSize.width * newZ, height: baseSize.height * newZ)
-            let sx = newSize.width  / max(oldSize.width,  0.0001)
-            let sy = newSize.height / max(oldSize.height, 0.0001)
-            let pDocAfter = NSPoint(x: pDocBefore.x * sx, y: pDocBefore.y * sy)
-
-            // 让“锚点”在缩放后仍落在鼠标下：origin' = pDocAfter - mouseInCV
-            var o = NSPoint(x: pDocAfter.x - mouseInCV.x, y: pDocAfter.y - mouseInCV.y)
-
-            // 夹紧 + 小图时轴向居中
+            // 限制滚动范围 + 小图居中
+            let dw = newDocSize.width, dh = newDocSize.height
             let cw = cv.bounds.width, ch = cv.bounds.height
-            let dw = newSize.width,   dh = newSize.height
-            o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
-            o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
+            newOrigin.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, newOrigin.x), dw - cw)
+            newOrigin.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, newOrigin.y), dh - ch)
 
-            // 应用滚动定位（此时 documentView 已在下一轮更新为新尺寸；
-            // 这里先定位，SwiftUI 更新后会再次校正一次，视觉无跳动）
-            cv.scroll(to: o)
+            //cv.scroll(to: newOrigin)
             sv.reflectScrolledClipView(cv)
-
-            return nil // 吃掉 ⌘ 滚轮，避免被当普通滚动
+            return nil
         }
         
         
@@ -150,6 +138,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
 
+        func restrictP(p: NSPoint) -> NSPoint {
+            // 限制 p 在 image 内
+            return NSPoint(x: min(max(0, p.x), baseSize.width),
+                           y: min(max(0, p.y), baseSize.height))
+        }
         @objc func handleMarquee(_ g: NSPanGestureRecognizer) {
             //scrollView
             // ├── contentView  ← 负责显示可视区域
@@ -158,8 +151,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                   let doc = sv.documentView else { return }
             let cv = sv.contentView
             // 把手势位置从 contentView 坐标转到 documentView 坐标
-            let p = cv.convert(g.location(in: cv), to: doc)
-            
+            var p = cv.convert(g.location(in: cv), to: doc)
+            p = restrictP(p: p)
+            print(p)
             switch g.state {
             case .began:
                 if let path = selectionLayer.path, path.contains(p) {
@@ -172,6 +166,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 if let s = selectionStartInDoc {
                     let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                     drawSelection(rectInDoc: snapped.rectDoc)
+                    // 确保 selectionLayer 在最上层
+                    if let superlayer = selectionLayer.superlayer {
+                        selectionLayer.removeFromSuperlayer()
+                        superlayer.addSublayer(selectionLayer)
+                    }
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
@@ -209,8 +208,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 selectionLayer.lineDashPattern = [4, 3]
                 doc.layer?.addSublayer(selectionLayer)
                 //selectionLayer.isGeometryFlipped = true
-                let click = NSClickGestureRecognizer(target: self, action: #selector(handleSelectionClick(_:)))
+                if cachedClickRecognizer == nil {
+                    let click = NSClickGestureRecognizer(target: self, action: #selector(handleSelectionClick(_:)))
                     doc.addGestureRecognizer(click)
+                    cachedClickRecognizer = click
+                }
             }
         }
         private func drawSelection(rectInDoc: CGRect) {
