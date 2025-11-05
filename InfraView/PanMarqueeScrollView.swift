@@ -12,9 +12,13 @@ import AppKit
 /// 仅负责 UI 层级结构（不含任何功能逻辑）
 struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     let content: Content
+    @Binding var zoom: CGFloat
+    let baseSize: CGSize
     var onSelectionTap: ((CGPoint) -> Void)? = nil
 
-    init(@ViewBuilder content: () -> Content) {
+    init(zoom: Binding<CGFloat>, baseSize: CGSize, @ViewBuilder content: () -> Content) {
+        self._zoom = zoom
+        self.baseSize = baseSize
         self.content = content()
     }
     
@@ -29,6 +33,79 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         let overlayView = NSView()
         let selectionLayer = CAShapeLayer()
         var onFinished: ((CGRect) -> Void)?
+        
+        
+        // 绑定进来，便于内部改 zoom
+        var getZoom: (() -> CGFloat)?
+        var setZoom: ((CGFloat) -> Void)?
+        var baseSize: CGSize = .zero
+        private var wheelMonitor: Any?
+        
+        
+        func installWheelMonitor() {
+            guard wheelMonitor == nil else { return }
+            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+                self?.handleWheel(e) ?? e
+            }
+        }
+        deinit {
+            if let m = wheelMonitor { NSEvent.removeMonitor(m) }
+        }
+
+        private func handleWheel(_ e: NSEvent) -> NSEvent? {
+            guard let sv = scrollView,
+                  e.modifierFlags.contains(.command) else { return e } // 非 ⌘ 滚轮 → 放行
+
+            // 缩放因子（滚轮向上放大、向下缩小）
+            let delta = e.scrollingDeltaY      // 正负取决于系统设置；可按需取反
+            let factor: CGFloat
+            if delta > 0 {
+                factor = 1.1
+            } else if delta < 0 {
+                factor = 1 / 1.1
+            } else {
+                return e
+            }
+
+            guard let getZ = getZoom, let setZ = setZoom else { return e }
+            let oldZ = max(0.01, getZ())
+            let newZ = min(10.0, max(0.05, oldZ * factor))
+            if abs(newZ - oldZ) < 1e-6 { return nil }  // 吃掉事件即可
+
+            // 以鼠标在 contentView 的位置为锚点
+            let cv = sv.contentView
+            let doc = sv.documentView!
+            let mouseInWin = e.locationInWindow
+            let mouseInCV  = cv.convert(mouseInWin, from: nil)
+            let pDocBefore = cv.convert(mouseInCV, to: doc) // 文档坐标中的“锚点”
+
+            // 先更新 zoom（外层会据此重建 ZoomedContent 并更新 documentView.size）
+            setZ(newZ)
+
+            // 计算缩放后的文档尺寸 & 同一锚点的新文档坐标
+            let oldSize = CGSize(width: baseSize.width * oldZ, height: baseSize.height * oldZ)
+            let newSize = CGSize(width: baseSize.width * newZ, height: baseSize.height * newZ)
+            let sx = newSize.width  / max(oldSize.width,  0.0001)
+            let sy = newSize.height / max(oldSize.height, 0.0001)
+            let pDocAfter = NSPoint(x: pDocBefore.x * sx, y: pDocBefore.y * sy)
+
+            // 让“锚点”在缩放后仍落在鼠标下：origin' = pDocAfter - mouseInCV
+            var o = NSPoint(x: pDocAfter.x - mouseInCV.x, y: pDocAfter.y - mouseInCV.y)
+
+            // 夹紧 + 小图时轴向居中
+            let cw = cv.bounds.width, ch = cv.bounds.height
+            let dw = newSize.width,   dh = newSize.height
+            o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
+            o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
+
+            // 应用滚动定位（此时 documentView 已在下一轮更新为新尺寸；
+            // 这里先定位，SwiftUI 更新后会再次校正一次，视觉无跳动）
+            cv.scroll(to: o)
+            sv.reflectScrolledClipView(cv)
+
+            return nil // 吃掉 ⌘ 滚轮，避免被当普通滚动
+        }
+        
         
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
@@ -162,7 +239,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.hostingView = hostingView
         context.coordinator.onSelectionTap = onSelectionTap
 
-
+        context.coordinator.baseSize = baseSize
+        context.coordinator.getZoom = { self.zoom }
+        context.coordinator.setZoom = { new in self.zoom = new }   // 外层 @State 更新
+        context.coordinator.installWheelMonitor()
+        
         // （以后会在这里添加：overlayView + 手势等）
         // ✅ 添加右键拖拽手势
         let pan = NSPanGestureRecognizer(target: context.coordinator,

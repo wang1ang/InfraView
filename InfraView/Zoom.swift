@@ -119,15 +119,16 @@ struct ZoomableImage: View {
             let wheelLayer = WheelZoomCatcher(allowed: [[.option], [.command]], onZoom: handleWheelZoom)
 
             //ScrollView([.horizontal, .vertical]) {
-            PanMarqueeScrollView {
+            PanMarqueeScrollView(zoom: $zoom, baseSize: CGSize(width: baseW, height: baseH)) {
                 content
                     //.background(ScrollAligner(mode: recenterMode))
             }
+            /*
             .overlay(
                 wheelLayer
                     //.frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
-            )
+            )*/
             .onAppear {
                 print("onAppear:", currentScale)
                 onScaleChanged(currentScale)
