@@ -176,7 +176,7 @@ final class ViewerViewModel: ObservableObject {
         
         case .zoom(let v):
             fitToScreen = false
-            zoom = clamp(v, 0.25...5)
+            zoom = clamp(v, 0.25...10)
         }
 
         // 统一计算目标内容尺寸并调窗口（把所有模式分支写在一个地方）

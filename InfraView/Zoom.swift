@@ -82,7 +82,7 @@ struct ZoomableImage: View {
     private func handleWheelZoom(factor: CGFloat, mouseInWindow: NSPoint) {
         fitToScreen = false
         print("set zoom in handleWheelZoom")
-        zoom = clamp(zoom * factor, 0.25...5)
+        zoom = clamp(zoom * factor, 0.25...10)
         recenterMode = .imageCenter
     }
     
@@ -117,9 +117,16 @@ struct ZoomableImage: View {
             
             //let contentSize = CGSize(width: contentWf, height: contentHf)
             let wheelLayer = WheelZoomCatcher(allowed: [[.option], [.command]], onZoom: handleWheelZoom)
+            
+            let rep = image.representations.first
+            let imagePixels = CGSize(
+                // fallback to point (image.size)
+                width: rep?.pixelsWide ?? Int(image.size.width),
+                height: rep?.pixelsHigh ?? Int(image.size.height)
+            )
 
             //ScrollView([.horizontal, .vertical]) {
-            PanMarqueeScrollView(zoom: $zoom, baseSize: CGSize(width: baseW, height: baseH)) {
+            PanMarqueeScrollView(imagePixels: imagePixels, baseSize: CGSize(width: baseW, height: baseH), zoom: $zoom) {
                 content
                     //.background(ScrollAligner(mode: recenterMode))
             }
@@ -163,7 +170,7 @@ struct ZoomableImage: View {
                     .onChanged { v in
                         fitToScreen = false
                         print("set zoom in gesture")
-                        zoom = clamp(baseZoom * v, 0.25...5)
+                        zoom = clamp(baseZoom * v, 0.25...10)
                     }
                     .onEnded { _ in
                         baseZoom = zoom

@@ -155,7 +155,7 @@ struct ContentView: View {
             }
 
             Menu(content: {
-                Slider(value: zoomBinding(), in: 0.25...5)
+                Slider(value: zoomBinding(), in: 0.25...10)
                 Divider(); zoomMenuContent
             }, label: { Text("\(String(StatusBarStore.shared.zoomPercent ?? 100))%") })
                 //Int(round(viewerVM.zoom*100))
