@@ -37,7 +37,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         private var suppressMarquee = false
         
         var selectionStartInDoc: NSPoint?
-        let overlayView = NSView()
         let selectionLayer = CAShapeLayer()
         var onFinished: ((CGRect) -> Void)?
         var onChanged: ((CGRect) -> Void)?
@@ -81,7 +80,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             guard let getZ = getZoom, let setZ = setZoom else { return e }
             let oldZ = max(0.01, getZ())
             let newZ = min(10.0, max(0.05, oldZ * factor))
-            if abs(newZ - oldZ) < 1e-6 { return nil }  // 吃掉事件即可
+            if abs(newZ - oldZ) < 1e-3 { return nil }  // 吃掉事件即可
 
             // 以鼠标在 contentView 的位置为锚点
             let cv = sv.contentView
@@ -138,24 +137,19 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             cv.scroll(to: o)
             sv.reflectScrolledClipView(cv)
         }
-        @objc func handleOverlayClick(_ g: NSClickGestureRecognizer) {
-            guard let overlay = overlayView.layer, let path = selectionLayer.path else { return }
-            let pOverlay = g.location(in: overlayView)  // overlay 坐标
-
-            if path.contains(pOverlay) {
-                // 点在框内：把点位换到文档坐标后回调给你做放大
-                if let doc = overlayView.superview {     // documentView 就是 overlay 的 superview
-                    let pDoc = overlayView.convert(pOverlay, to: doc)
+        
+        @objc func handleSelectionClick(_ g: NSClickGestureRecognizer) {
+            guard let sv = scrollView, let doc = sv.documentView else { return }
+            guard let path = selectionLayer.path else { return }
+            let pDoc = g.location(in: doc)  // overlay 坐标
+            if path.contains(pDoc) {
                     onSelectionTap?(pDoc)                // 交给外部放大
-                }
             } else {
                 // 点在框外：清除选框
                 selectionLayer.path = nil
             }
         }
-        func normalizePoint(p: CGSize) {
-            
-        }
+
         @objc func handleMarquee(_ g: NSPanGestureRecognizer) {
             //scrollView
             // ├── contentView  ← 负责显示可视区域
@@ -165,29 +159,26 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             let cv = sv.contentView
             // 把手势位置从 contentView 坐标转到 documentView 坐标
             let p = cv.convert(g.location(in: cv), to: doc)
-            let pOverlay = overlayView.convert(p, from: doc)
             
             switch g.state {
             case .began:
-                if let path = selectionLayer.path, path.contains(pOverlay) {
+                if let path = selectionLayer.path, path.contains(p) {
                     suppressMarquee = true
                     return
                 }
                 suppressMarquee = false
                 selectionStartInDoc = p
-                ensureOverlay(on: doc)                 // 准备 overlay
+                ensureSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc {
                     let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                     drawSelection(rectInDoc: snapped.rectDoc)
                     onChanged?(snapped.rectPx)
                 }
-                //drawSelection(from: p, to: p)          // 先画一个 0 大小的框
             case .changed:
                 guard !suppressMarquee, let s = selectionStartInDoc else { return }
                 let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                 drawSelection(rectInDoc: snapped.rectDoc)
                 onChanged?(snapped.rectPx)
-                //drawSelection(from: s, to: p)
             case .ended, .cancelled:
                 if suppressMarquee {
                     onSelectionTap?(p)
@@ -195,20 +186,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     return
                 }
                 guard let s = selectionStartInDoc else { return }
-                let snapped = snapRectToPixels(start: s, end: p,
-                                                    
-                                                       imagePixels: imagePixels)
-                print(s)
-                print(snapped)
-                let r = normalizedRect(s, p)
-                /*
-                // 清掉
-                //drawSelection(from: .zero, to: .zero)
-                selectionStartInDoc = nil
-                // 把结果回调给 SwiftUI（可选）
-                */
+                let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                 drawSelection(rectInDoc: snapped.rectDoc)
-                onFinished?(r)
+                onFinished?(snapped.rectPx)
                 selectionStartInDoc = nil
             default:
                 break
@@ -220,46 +200,27 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             let x2 = max(a.x, b.x), y2 = max(a.y, b.y)
             return CGRect(x: x1, y: y1, width: x2 - x1, height: y2 - y1)
         }
-        private func ensureOverlay(on doc: NSView) {
-            if overlayView.superview == nil {
-                overlayView.wantsLayer = true
-                overlayView.layer?.backgroundColor = NSColor.clear.cgColor
-                overlayView.frame = doc.bounds
-                overlayView.autoresizingMask = [.width, .height]   // 跟随文档大小
-                doc.addSubview(overlayView)
-
+        private func ensureSelectionLayer(on doc: NSView) {
+            if selectionLayer.superlayer == nil {
+                doc.wantsLayer = true
                 selectionLayer.fillColor = nil
-                    // NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
                 selectionLayer.strokeColor = NSColor.controlAccentColor.cgColor
                 selectionLayer.lineWidth = 1
                 selectionLayer.lineDashPattern = [4, 3]
-                overlayView.layer?.addSublayer(selectionLayer)
+                doc.layer?.addSublayer(selectionLayer)
                 //selectionLayer.isGeometryFlipped = true
-                let click = NSClickGestureRecognizer(target: self, action: #selector(handleOverlayClick(_:)))
-                overlayView.addGestureRecognizer(click)
+                let click = NSClickGestureRecognizer(target: self, action: #selector(handleSelectionClick(_:)))
+                    doc.addGestureRecognizer(click)
             }
         }
-        /*
-        private func drawSelection(from a: NSPoint, to b: NSPoint) {
-            let rDoc = normalizedRect(a, b)
-            guard let doc = overlayView.superview else { return }
-            let rOverlay = overlayView.convert(rDoc, from: doc)
-            let path = CGMutablePath()
-            path.addRect(rOverlay)
-            selectionLayer.path = rOverlay.isEmpty ? nil : path
-        }*/
         private func drawSelection(rectInDoc: CGRect) {
             guard rectInDoc.width > 0, rectInDoc.height > 0 else {
                 selectionLayer.path = nil
                 return
             }
-            // overlay 的父视图就是 documentView
-            guard let doc = overlayView.superview else { return }
-            let rOverlay = overlayView.convert(rectInDoc, from: doc)
-
             let path = CGMutablePath()
-            path.addRect(rOverlay)
-            selectionLayer.path = path          // 只描边；fillColor 请保持为 nil
+            path.addRect(rectInDoc)
+            selectionLayer.path = path // 只描边；fillColor 请保持为 nil
         }
         private func snapRectToPixels(start sDoc: NSPoint,
                                       end eDoc: NSPoint,
@@ -341,6 +302,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         let mar = NSPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleMarquee(_:)))
         mar.buttonMask = 0x1
         scrollView.contentView.addGestureRecognizer(mar)
+        
         return scrollView
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
