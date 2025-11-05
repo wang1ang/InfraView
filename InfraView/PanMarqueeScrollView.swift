@@ -51,6 +51,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var baseSize: CGSize = .zero
         private var wheelMonitor: Any?
         
+        var widthConstraint: NSLayoutConstraint?
+        var heightConstraint: NSLayoutConstraint?
         var cachedClickRecognizer: NSClickGestureRecognizer?
         
         func installWheelMonitor() {
@@ -258,7 +260,17 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                               height: rPx.size.height / sy)
             return (rDoc, rPx)
         }
-
+        /// 根据 zoom 更新 documentView 尺寸（使用 baseSize * zoom）
+        func updateDocSizeForZoom() {
+            guard let getZ = getZoom,
+                  let hv = hostingView else { return }
+            let z = max(0.01, getZ())
+            let size = CGSize(width: baseSize.width * z, height: baseSize.height * z)
+            widthConstraint?.constant = size.width
+            heightConstraint?.constant = size.height
+            hv.needsLayout = true
+            hv.layoutSubtreeIfNeeded()
+        }
     }
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -310,12 +322,18 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let hv = context.coordinator.hostingView else { return }
+        
+        let nCenter = normalizedCenter(in: nsView)
         hv.rootView = content
+        
         
         //hv.layoutSubtreeIfNeeded()
         //nsView.reflectScrolledClipView(nsView.contentView)
-        //context.coordinator.imagePixels = imagePixels
-        //context.coordinator.baseSize = baseSize
+        context.coordinator.imagePixels = imagePixels
+        context.coordinator.baseSize = baseSize
+        //context.coordinator.updateDocSizeForZoom()
+        
+        restoreCenter(nCenter, in: nsView)
     }
 }
 
@@ -363,4 +381,39 @@ func pixelRect(from selectionDoc: CGRect,
     r.size.width  = min(r.width,  imagePixels.width  - r.origin.x)
     r.size.height = min(r.height, imagePixels.height - r.origin.y)
     return r
+}
+
+
+
+/// 归一化位置：以 document 可视中心点作归一化锚 (0...1)
+func normalizedCenter(in sv: NSScrollView) -> CGPoint {
+    guard let doc = sv.documentView else { return .zero }
+    let cv = sv.contentView
+    let vis = cv.bounds
+    let center = NSPoint(x: vis.midX, y: vis.midY)
+    let w = max(doc.bounds.width, 1)
+    let h = max(doc.bounds.height, 1)
+    return CGPoint(x: center.x / w, y: center.y / h)
+}
+
+/// 根据归一化中心点恢复滚动位置
+func restoreCenter(_ n: CGPoint, in sv: NSScrollView) {
+    guard let doc = sv.documentView else { return }
+    let cv = sv.contentView
+    let target = NSPoint(x: n.x * doc.bounds.width,
+                         y: n.y * doc.bounds.height)
+    let o = NSPoint(x: target.x - cv.bounds.width  / 2.0,
+                    y: target.y - cv.bounds.height / 2.0)
+    cv.scroll(to: clampOrigin(o, cv: cv, doc: doc))
+    sv.reflectScrolledClipView(cv)
+}
+
+/// 将原点限制在合法范围并处理“小图居中”的情形
+private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
+    var o = o
+    let dw = doc.bounds.width, dh = doc.bounds.height
+    let cw = cv.bounds.width, ch = cv.bounds.height
+    o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
+    o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
+    return o
 }
