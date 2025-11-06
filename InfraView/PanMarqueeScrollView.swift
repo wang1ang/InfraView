@@ -43,7 +43,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         //var contentSize: CGSize = .zero
         var imagePixels: CGSize = .zero
-        
+        var currentSelectionPx: CGRect?
         
         // 绑定进来，便于内部改 zoom
         var getZoom: (() -> CGFloat)?
@@ -78,7 +78,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
             // 更新 zoom → 更新 document 尺寸
             setZ(newZ)
-
+            
             // 根据“锚点”计算新原点
             guard let doc2 = sv.documentView else { return }
             let target = NSPoint(x: anchorN.x * doc2.bounds.width,
@@ -89,6 +89,21 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
             //cv.scroll(to: newOrigin)
             sv.reflectScrolledClipView(cv)
+            
+            // 缩放后重绘选框
+            if let rPx = currentSelectionPx {
+                let z = newZ
+                let contentSize = CGSize(width: baseSize.width * z, height: baseSize.height * z)
+                let sx = imagePixels.width  / max(0.0001, contentSize.width)
+                let sy = imagePixels.height / max(0.0001, contentSize.height)
+                let rDoc = CGRect(x: rPx.origin.x / sx,
+                                y: rPx.origin.y / sy,
+                                width:  rPx.size.width  / sx,
+                                height: rPx.size.height / sy)
+                ensureSelectionLayer(on: doc)
+                drawSelection(rectInDoc: rDoc)
+            }
+
         }
 
         
@@ -131,6 +146,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             } else {
                 // 点在框外：清除选框
                 selectionLayer.path = nil
+                currentSelectionPx = nil
             }
         }
 
@@ -168,12 +184,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                         selectionLayer.removeFromSuperlayer()
                         superlayer.addSublayer(selectionLayer)
                     }
+                    currentSelectionPx = snapped.rectPx
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
                 guard !suppressMarquee, let s = selectionStartInDoc else { return }
                 let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                 drawSelection(rectInDoc: snapped.rectDoc)
+                currentSelectionPx = snapped.rectPx
                 onChanged?(snapped.rectPx)
             case .ended, .cancelled:
                 if suppressMarquee {
@@ -185,6 +203,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 guard let s = selectionStartInDoc else { return }
                 let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                 drawSelection(rectInDoc: snapped.rectDoc)
+                currentSelectionPx = snapped.rectPx
                 onFinished?(snapped.rectPx)
                 selectionStartInDoc = nil
             default:
@@ -211,6 +230,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         private func drawSelection(rectInDoc: CGRect) {
             guard rectInDoc.width > 0, rectInDoc.height > 0 else {
                 selectionLayer.path = nil
+                currentSelectionPx = nil
                 return
             }
             let path = CGMutablePath()
