@@ -49,13 +49,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var getZoom: (() -> CGFloat)?
         var setZoom: ((CGFloat) -> Void)?
         var baseSize: CGSize = .zero
-        private var wheelMonitor: Any?
         
         var cachedClickRecognizer: NSClickGestureRecognizer?
         
         func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
-                  e.modifierFlags.contains(.command),
+                  //e.modifierFlags.contains(.command),
+                  e.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
                   let getZ = getZoom,
                   let setZ = setZoom,
                   let doc = sv.documentView else { return }
@@ -96,6 +96,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
             let cv = sv.contentView
+            switch g.state {
+            case .began:
+                NSCursor.closedHand.push()
+            case .ended, .cancelled:
+                NSCursor.pop()
+            default:
+                break
+            }
             guard g.state == .began || g.state == .changed else { return }
 
             let t = g.translation(in: cv)
@@ -149,6 +157,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     return
                 }
                 suppressMarquee = false
+                NSCursor.crosshair.push()
                 selectionStartInDoc = p
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc {
@@ -172,6 +181,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     suppressMarquee = false
                     return
                 }
+                NSCursor.pop()
                 guard let s = selectionStartInDoc else { return }
                 let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                 drawSelection(rectInDoc: snapped.rectDoc)
@@ -287,7 +297,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         // ✅ 添加滚轮缩放
         clipView.onCommandScroll = { [weak coord = context.coordinator] e in
-            _ = coord?.handleWheel(e)
+            coord?.handleWheel(e)
         }
         
         return scrollView
