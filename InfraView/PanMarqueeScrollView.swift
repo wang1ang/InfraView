@@ -274,7 +274,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        // SwiftUI 内容用 NSHostingView 包起来，放入 documentView
+        // SwiftUI 的 View 用 NSHostingView 包起来变成 NSView，才能放入 documentView
         let hostingView = NSHostingView(rootView: content)
         //hostingView.frame.size = contentSize
         // 下面这个有必要吗？
@@ -344,6 +344,13 @@ final class CenteringClipView: NSClipView {
         }
         return rect
     }
+    override func scrollWheel(with event: NSEvent) {
+        // 只有按下 ⌘ 时才拦截；否则交给默认滚动
+        if event.modifierFlags.contains(.command) {
+            return  // 吞掉事件
+        }
+        super.scrollWheel(with: event)  // 没按 ⌘ 时放行
+    }
 }
 
 
@@ -405,3 +412,5 @@ private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
     o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
     return o
 }
+
+
