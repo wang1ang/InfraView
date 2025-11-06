@@ -41,7 +41,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var onFinished: ((CGRect) -> Void)?
         var onChanged: ((CGRect) -> Void)?
         
-        var contentSize: CGSize = .zero
+        //var contentSize: CGSize = .zero
         var imagePixels: CGSize = .zero
         
         
@@ -53,29 +53,19 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         var cachedClickRecognizer: NSClickGestureRecognizer?
         
-        func installWheelMonitor() {
-            guard wheelMonitor == nil else { return }
-            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
-                self?.handleWheel(e) ?? e
-            }
-        }
-        deinit {
-            if let m = wheelMonitor { NSEvent.removeMonitor(m) }
-        }
-
-        private func handleWheel(_ e: NSEvent) -> NSEvent? {
+        func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
                   e.modifierFlags.contains(.command),
                   let getZ = getZoom,
                   let setZ = setZoom,
-                  let doc = sv.documentView else { return e }
+                  let doc = sv.documentView else { return }
 
             let factor: CGFloat = e.scrollingDeltaY > 0 ? 1.1 : (e.scrollingDeltaY < 0 ? 1/1.1 : 1)
-            guard factor != 1 else { return e }
+            guard factor != 1 else { return }
 
             let oldZ = max(0.01, getZ())
             let newZ = min(10.0, max(0.05, oldZ * factor))
-            if abs(newZ - oldZ) < 1e-3 { return nil }
+            if abs(newZ - oldZ) < 1e-3 { return }
 
             // 记录锚点（鼠标位置）相对 doc 的归一化坐标
             let cv = sv.contentView
@@ -85,14 +75,12 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             let docW = max(doc.bounds.width, 1), docH = max(doc.bounds.height, 1)
             let anchorN = CGPoint(x: mouseInDoc.x / docW, y: mouseInDoc.y / docH)
 
-            // 记录当前可视区域中心归一化坐标（作为备用）
-            let fallbackN = normalizedCenter(in: sv)
 
             // 更新 zoom → 更新 document 尺寸
             setZ(newZ)
 
             // 根据“锚点”计算新原点
-            guard let doc2 = sv.documentView else { return nil }
+            guard let doc2 = sv.documentView else { return }
             let target = NSPoint(x: anchorN.x * doc2.bounds.width,
                                  y: anchorN.y * doc2.bounds.height)
             var newOrigin = NSPoint(x: target.x - cv.bounds.width / 2,
@@ -101,7 +89,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
             //cv.scroll(to: newOrigin)
             sv.reflectScrolledClipView(cv)
-            return nil
         }
 
         
@@ -194,12 +181,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 break
             }
         }
-        // 轻量工具们 —— 最小实现
-        private func normalizedRect(_ a: NSPoint, _ b: NSPoint) -> CGRect {
-            let x1 = min(a.x, b.x), y1 = min(a.y, b.y)
-            let x2 = max(a.x, b.x), y2 = max(a.y, b.y)
-            return CGRect(x: x1, y: y1, width: x2 - x1, height: y2 - y1)
-        }
+
         private func ensureSelectionLayer(on doc: NSView) {
             if selectionLayer.superlayer == nil {
                 doc.wantsLayer = true
@@ -267,7 +249,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         // 外层滚动视图
         let scrollView = NSScrollView()
-        scrollView.contentView = CenteringClipView()
+        let clipView = CenteringClipView()
+        scrollView.contentView = clipView
 
         scrollView.hasHorizontalScroller = true
         scrollView.hasVerticalScroller = true
@@ -291,43 +274,40 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.baseSize = baseSize
         context.coordinator.getZoom = { self.zoom }
         context.coordinator.setZoom = { new in self.zoom = new }   // 外层 @State 更新
-        context.coordinator.installWheelMonitor()
-        
-        // （以后会在这里添加：overlayView + 手势等）
         // ✅ 添加右键拖拽手势
         let pan = NSPanGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handlePan(_:)))
         pan.buttonMask = 0x2   // 右键（secondary button）
         scrollView.contentView.addGestureRecognizer(pan)
         
-        //✅ 添加左键画框
+        // ✅ 添加左键画框
         let mar = NSPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleMarquee(_:)))
         mar.buttonMask = 0x1
         scrollView.contentView.addGestureRecognizer(mar)
+        
+        // ✅ 添加滚轮缩放
+        clipView.onCommandScroll = { [weak coord = context.coordinator] e in
+            _ = coord?.handleWheel(e)
+        }
         
         return scrollView
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let hv = context.coordinator.hostingView else { return }
-        
-        let nCenter = normalizedCenter(in: nsView)
         hv.rootView = content
-        
-        
         //hv.layoutSubtreeIfNeeded()
         //nsView.reflectScrolledClipView(nsView.contentView)
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
         //context.coordinator.updateDocSizeForZoom()
-        
-        restoreCenter(nCenter, in: nsView)
     }
 }
 
 
 /// 当文档内容比可视区域小时，让内容居中显示的 ClipView。
 final class CenteringClipView: NSClipView {
+    var onCommandScroll: ((NSEvent) -> Void)?
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposedBounds)
         guard let docView = self.documentView else { return rect }
@@ -346,7 +326,11 @@ final class CenteringClipView: NSClipView {
     }
     override func scrollWheel(with event: NSEvent) {
         // 只有按下 ⌘ 时才拦截；否则交给默认滚动
-        if event.modifierFlags.contains(.command) {
+        //if event.modifierFlags.contains(.command)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command)
+        {
+            onCommandScroll?(event)
             return  // 吞掉事件
         }
         super.scrollWheel(with: event)  // 没按 ⌘ 时放行
@@ -380,28 +364,6 @@ func pixelRect(from selectionDoc: CGRect,
 
 
 
-/// 归一化位置：以 document 可视中心点作归一化锚 (0...1)
-func normalizedCenter(in sv: NSScrollView) -> CGPoint {
-    guard let doc = sv.documentView else { return .zero }
-    let cv = sv.contentView
-    let vis = cv.bounds
-    let center = NSPoint(x: vis.midX, y: vis.midY)
-    let w = max(doc.bounds.width, 1)
-    let h = max(doc.bounds.height, 1)
-    return CGPoint(x: center.x / w, y: center.y / h)
-}
-
-/// 根据归一化中心点恢复滚动位置
-func restoreCenter(_ n: CGPoint, in sv: NSScrollView) {
-    guard let doc = sv.documentView else { return }
-    let cv = sv.contentView
-    let target = NSPoint(x: n.x * doc.bounds.width,
-                         y: n.y * doc.bounds.height)
-    let o = NSPoint(x: target.x - cv.bounds.width  / 2.0,
-                    y: target.y - cv.bounds.height / 2.0)
-    cv.scroll(to: clampOrigin(o, cv: cv, doc: doc))
-    sv.reflectScrolledClipView(cv)
-}
 
 /// 将原点限制在合法范围并处理“小图居中”的情形
 private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
