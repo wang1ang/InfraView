@@ -51,8 +51,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var baseSize: CGSize = .zero
         private var wheelMonitor: Any?
         
-        var widthConstraint: NSLayoutConstraint?
-        var heightConstraint: NSLayoutConstraint?
         var cachedClickRecognizer: NSClickGestureRecognizer?
         
         func installWheelMonitor() {
@@ -72,7 +70,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                   let setZ = setZoom,
                   let doc = sv.documentView else { return e }
 
-            // 1️⃣ 计算新的缩放比例
             let factor: CGFloat = e.scrollingDeltaY > 0 ? 1.1 : (e.scrollingDeltaY < 0 ? 1/1.1 : 1)
             guard factor != 1 else { return e }
 
@@ -80,31 +77,33 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             let newZ = min(10.0, max(0.05, oldZ * factor))
             if abs(newZ - oldZ) < 1e-3 { return nil }
 
-            // 2️⃣ 以鼠标在 contentView 的位置为锚点
+            // 记录锚点（鼠标位置）相对 doc 的归一化坐标
             let cv = sv.contentView
             let mouseInWin = e.locationInWindow
             let mouseInCV  = cv.convert(mouseInWin, from: nil)
-            let mouseInDoc = cv.convert(mouseInCV, to: doc) // 文档坐标中的“锚点”
+            let mouseInDoc = cv.convert(mouseInCV, to: doc)
+            let docW = max(doc.bounds.width, 1), docH = max(doc.bounds.height, 1)
+            let anchorN = CGPoint(x: mouseInDoc.x / docW, y: mouseInDoc.y / docH)
 
-            // 3️⃣ 更新 zoom 并计算新滚动偏移
+            // 记录当前可视区域中心归一化坐标（作为备用）
+            let fallbackN = normalizedCenter(in: sv)
+
+            // 更新 zoom → 更新 document 尺寸
             setZ(newZ)
-            let scale = newZ / oldZ
-            let newDocSize = CGSize(width: baseSize.width * newZ, height: baseSize.height * newZ)
-            var newOrigin = NSPoint(
-                x: mouseInDoc.x * scale - (cv.bounds.width / 2),
-                y: mouseInDoc.y * scale - (cv.bounds.height / 2)
-            )
 
-            // 限制滚动范围 + 小图居中
-            let dw = newDocSize.width, dh = newDocSize.height
-            let cw = cv.bounds.width, ch = cv.bounds.height
-            newOrigin.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, newOrigin.x), dw - cw)
-            newOrigin.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, newOrigin.y), dh - ch)
+            // 根据“锚点”计算新原点
+            guard let doc2 = sv.documentView else { return nil }
+            let target = NSPoint(x: anchorN.x * doc2.bounds.width,
+                                 y: anchorN.y * doc2.bounds.height)
+            var newOrigin = NSPoint(x: target.x - cv.bounds.width / 2,
+                                    y: target.y - cv.bounds.height / 2)
+            newOrigin = clampOrigin(newOrigin, cv: cv, doc: doc2)
 
             //cv.scroll(to: newOrigin)
             sv.reflectScrolledClipView(cv)
             return nil
         }
+
         
         
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
@@ -142,8 +141,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         func restrictP(p: NSPoint) -> NSPoint {
             // 限制 p 在 image 内
-            return NSPoint(x: min(max(0, p.x), baseSize.width),
-                           y: min(max(0, p.y), baseSize.height))
+            let z = max(0.01, getZoom?() ?? 1)
+            return NSPoint(x: min(max(0, p.x), baseSize.width * z),
+                           y: min(max(0, p.y), baseSize.height * z))
         }
         @objc func handleMarquee(_ g: NSPanGestureRecognizer) {
             //scrollView
@@ -155,7 +155,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             // 把手势位置从 contentView 坐标转到 documentView 坐标
             var p = cv.convert(g.location(in: cv), to: doc)
             p = restrictP(p: p)
-            print(p)
             switch g.state {
             case .began:
                 if let path = selectionLayer.path, path.contains(p) {
@@ -259,17 +258,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                               width:  rPx.size.width  / sx,
                               height: rPx.size.height / sy)
             return (rDoc, rPx)
-        }
-        /// 根据 zoom 更新 documentView 尺寸（使用 baseSize * zoom）
-        func updateDocSizeForZoom() {
-            guard let getZ = getZoom,
-                  let hv = hostingView else { return }
-            let z = max(0.01, getZ())
-            let size = CGSize(width: baseSize.width * z, height: baseSize.height * z)
-            widthConstraint?.constant = size.width
-            heightConstraint?.constant = size.height
-            hv.needsLayout = true
-            hv.layoutSubtreeIfNeeded()
         }
     }
     func makeCoordinator() -> Coordinator {
