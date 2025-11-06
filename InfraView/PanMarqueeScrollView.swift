@@ -50,6 +50,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var setZoom: ((CGFloat) -> Void)?
         var baseSize: CGSize = .zero
         
+        // avoid alwasy create new one
         var cachedClickRecognizer: NSClickGestureRecognizer?
         
         func handleWheel(_ e: NSEvent) {

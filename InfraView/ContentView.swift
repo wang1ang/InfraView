@@ -177,7 +177,6 @@ struct ContentView: View {
             Button("\(Int(z * 100))%") {
                 fitToScreenBinding().wrappedValue = false
                 zoomBinding().wrappedValue = z
-                NotificationCenter.default.post(name: .infraRecenter, object: RecenterMode.imageCenter)
             }
         }
     }
@@ -254,7 +253,7 @@ struct Viewer: View {
                             fitMode: fitMode,
                             onScaleChanged: { percent in
                                 print("prev vm.zoom: ", viewerVM.zoom)
-                                //viewerVM.zoom = percent
+                                viewerVM.zoom = percent
                                 StatusBarStore.shared.setZoom(percent: Int(round(percent * 100)))
                             },
                             onLayoutChange: nil
@@ -285,15 +284,21 @@ struct Viewer: View {
                     // 这里无需额外处理
                 }
                 .onChange(of: fitMode) { _, _ in showCurrent() }
-                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in showCurrent() }
-                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in showCurrent() }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+                    showCurrent()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+                    showCurrent()
+                }
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }
         }
         .onChange(of: bar.isVisible) { _, _ in
             guard let win = keyWindowOrFirstVisible() else { return }
-            viewerVM.drive(reason: .fitToggle(true), mode: fitMode, window: win)
+            if fitMode != .doNotFit && fitMode != .fitWindowToImage {
+                viewerVM.drive(reason: .fitToggle(true), mode: fitMode, window: win)
+            }
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
             StatusBarStore.shared.setZoom(percent: Int(round(newZoom * 100)))
@@ -419,7 +424,6 @@ extension Notification.Name {
     static let infraDelete = Notification.Name("InfraView.Delete")
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
-    static let infraRecenter = Notification.Name("InfraView.Recenter")
 }
 
 // MARK: - Window Helper
