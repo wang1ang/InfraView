@@ -99,7 +99,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let originDoc = m.pxToDoc(rPx.origin)
                 let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
                 let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
-                selectionLayer.updateInDoc(rectInDoc: rDoc)
+                selectionLayer.update(rectInDoc: rDoc)
             }
 
         }
@@ -250,7 +250,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
         
-        private var baseTitle: String? // 记住文件名
+        public var baseTitle: String? // 记住文件名
         private func cleanBaseTitle(_ t: String) -> String {
             var s = t
             s = s.replacingOccurrences(of: #" — XY:.*$"#,         with: "", options: .regularExpression)
@@ -274,24 +274,16 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
                 let cv   = sv.contentView
                 
-                
-                
-                //
+                // 点击在外围，消除选框
                 if selectionLayer.layer.path != nil {
                     let docRectInCV = cv.convert(doc.bounds, from: doc)
                     let pInCV = cv.convert(e.locationInWindow, from: nil)
                     if !docRectInCV.contains(pInCV) {
                         selectionLayer.clear()
-                        if let win = sv.window {
-                            let base = baseTitle ?? cleanBaseTitle(win.title)
-                            win.title = base
-                        }
                     }
                 }
                 
-                
-                
-                
+
                 let pInCV = cv.convert(e.locationInWindow, from: nil)
                 var pDoc  = cv.convert(pInCV, to: doc)
                 pDoc = self.restrictP(p: pDoc)
@@ -304,8 +296,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let y  = max(0, min(py, Int(self.imagePixels.height) - 1))
 
                 if let win = sv.window {
-                    self.baseTitle = self.cleanBaseTitle(win.title)   // 记住文件名
-
+                    if baseTitle == nil {
+                        self.baseTitle = self.cleanBaseTitle(win.title)   // 记住文件名
+                    }
                     if let c = self.getColorAtPx?(x, y)?.usingColorSpace(.sRGB) {
                         let r = Int(round(c.redComponent   * 255))
                         let g = Int(round(c.greenComponent * 255))
@@ -380,6 +373,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         //nsView.reflectScrolledClipView(nsView.contentView)
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
+        context.coordinator.baseTitle = nil
         //context.coordinator.updateDocSizeForZoom()
     }
 }
@@ -499,13 +493,13 @@ final class SelectionOverlay {
         guard let L = doc.layer else { return }
         if layer.superlayer !== L { layer.removeFromSuperlayer(); L.addSublayer(layer) }
     }
-    func updateInDoc(rectInDoc: CGRect?) {
+    func update(rectInDoc: CGRect?) {
         guard let r = rectInDoc, r.width > 0, r.height > 0 else { layer.path = nil; return }
         let path = CGMutablePath(); path.addRect(r)
         layer.path = path
     }
     func update(snapped: (rectDoc: CGRect, rectPx: CGRect)) {
-        updateInDoc(rectInDoc: snapped.rectDoc)
+        update(rectInDoc: snapped.rectDoc)
         currentSelectionPx = snapped.rectPx
     }
     func clear() {
