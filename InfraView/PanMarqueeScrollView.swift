@@ -53,6 +53,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var cachedDoubleClickRecognizer: NSClickGestureRecognizer?
 
         var mouseDownMonitor: Any?
+        var mouseUpMonitor: Any?
         var getColorAtPx: ((Int, Int) -> NSColor?)?
 
 
@@ -265,9 +266,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         func installMouseDownMonitor() {
             // 监听左键按下，但不“消费”事件
             mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] e in
-                
-
-                
                 guard let self,
                       let sv = self.scrollView,
                       let doc = sv.documentView else { return e }
@@ -312,6 +310,15 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     }
                 }
                 return e  // 不拦截事件，后续拖拽/双击照常工作
+            }
+            // 左键抬起：一律还原文件名
+            mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] e in
+                guard let self,
+                      let sv = self.scrollView,
+                      let win = sv.window else { return e }
+                let base = self.baseTitle ?? self.cleanBaseTitle(win.title)
+                win.title = base
+                return e
             }
         }
     }
