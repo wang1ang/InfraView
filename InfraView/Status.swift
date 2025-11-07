@@ -21,6 +21,8 @@ public final class StatusBarStore: ObservableObject {
 
     @Published public var timestamp: Date?
     
+    @Published public var selection: String?
+    
     @Published public var isVisible: Bool = true
     public var height: CGFloat { isVisible ? 22 : 0 }
 
@@ -47,11 +49,15 @@ public final class StatusBarStore: ObservableObject {
             s.append(Self.dateFormatter.string(from: dt))
             s.append(Self.timeFormatter.string(from: dt))
         }
+        
+        if let selection {
+            s.append(selection)
+        }
 
         return s
     }
 
-        // 便捷设置方法（随用随调）
+    // 便捷设置方法（随用随调）
     public func setImageInfo(width: Int?, height: Int?, bpp: Int?) {
         pixelWidth = width; pixelHeight = height; bitsPerPixel = bpp
     }
@@ -65,6 +71,7 @@ public final class StatusBarStore: ObservableObject {
         pixelWidth = nil; pixelHeight = nil; bitsPerPixel = nil
         index = nil; total = nil; zoomPercent = nil
         timestamp = nil
+        selection = nil
     }
 
 
