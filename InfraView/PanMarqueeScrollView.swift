@@ -16,7 +16,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     let baseSize: CGSize
     let imagePixels: CGSize
     var onSelectionTap: ((CGPoint) -> Void)? = nil
-    
+    var colorProvider: ((Int, Int) -> NSColor)? = nil
 
     init(
         imagePixels: CGSize,
@@ -50,8 +50,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var setZoom: ((CGFloat) -> Void)?
         var baseSize: CGSize = .zero
         
-        // avoid alwasy create new one
+        // avoid alwasy create new click recognizers
+        //var cachedPressRecognizer: NSPressGestureRecognizer?
         var cachedClickRecognizer: NSClickGestureRecognizer?
+        var cachedDoubleClickRecognizer: NSClickGestureRecognizer?
+
+        var mouseDownMonitor: Any?
+        var getColorAtPx: ((Int, Int) -> NSColor?)?
         
         func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
@@ -101,14 +106,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                                 y: rPx.origin.y / sy,
                                 width:  rPx.size.width  / sx,
                                 height: rPx.size.height / sy)
-                ensureSelectionLayer(on: doc)
                 drawSelection(rectInDoc: rDoc)
             }
 
         }
 
-        
-        
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
             let cv = sv.contentView
@@ -138,19 +140,25 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             sv.reflectScrolledClipView(cv)
         }
         
-        @objc func handleSelectionClick(_ g: NSClickGestureRecognizer) {
+        @objc func handleZoomClick(_ g: NSClickGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
             guard let path = selectionLayer.path else { return }
             let pDoc = g.location(in: doc)  // overlay 坐标
             if path.contains(pDoc) {
                     onSelectionTap?(pDoc)                // 交给外部放大
             } else {
-                // 点在框外：清除选框
                 selectionLayer.path = nil
                 currentSelectionPx = nil
+                if let win = scrollView?.window {
+                    let base = baseTitle ?? cleanBaseTitle(win.title)
+                    win.title = base
+                }
             }
         }
-
+        @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
+            guard g.state == .ended else { return }
+            g.view?.window?.toggleFullScreen(nil)
+        }
         func restrictP(p: NSPoint) -> NSPoint {
             // 限制 p 在 image 内
             let z = max(0.01, getZoom?() ?? 1)
@@ -181,19 +189,34 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
                     drawSelection(rectInDoc: snapped.rectDoc)
                     // 确保 selectionLayer 在最上层
+                    /*
                     if let superlayer = selectionLayer.superlayer {
                         selectionLayer.removeFromSuperlayer()
                         superlayer.addSublayer(selectionLayer)
-                    }
+                    }*/
                     currentSelectionPx = snapped.rectPx
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
                 guard !suppressMarquee, let s = selectionStartInDoc else { return }
                 let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
+                
                 drawSelection(rectInDoc: snapped.rectDoc)
                 currentSelectionPx = snapped.rectPx
                 onChanged?(snapped.rectPx)
+                
+                let w = Int(snapped.rectPx.width.rounded())
+                let h = Int(snapped.rectPx.height.rounded())
+                let x = Int(snapped.rectPx.origin.x.rounded())
+                let y = Int(snapped.rectPx.origin.y.rounded())
+                if let win = scrollView?.window {
+                    if w > 0 && h > 0 {
+                        win.title = "XY:(\(x),\(y))(\(w)x\(h) pixels, \(ratioText(w,h)))"
+                    } else {
+                        // 没有有效选框时，拖动中标题可以清空为纯坐标或直接用空
+                        win.title = "XY:(\(x),\(y))"
+                    }
+                }
             case .ended, .cancelled:
                 if suppressMarquee {
                     onSelectionTap?(p)
@@ -207,22 +230,49 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 currentSelectionPx = snapped.rectPx
                 onFinished?(snapped.rectPx)
                 selectionStartInDoc = nil
+                let w = Int(snapped.rectPx.width.rounded())
+                let h = Int(snapped.rectPx.height.rounded())
+                let x = Int(snapped.rectPx.origin.x.rounded())
+                let y = Int(snapped.rectPx.origin.y.rounded())
+                if let win = scrollView?.window {
+                    let base = baseTitle ?? cleanBaseTitle(win.title)
+                    if w > 0 && h > 0 {
+                        win.title = "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratioText(w,h))"
+                    } else {
+                        win.title = base
+                    }
+                }
             default:
                 break
             }
         }
 
         private func ensureSelectionLayer(on doc: NSView) {
+            doc.wantsLayer = true
+            guard let docLayer = doc.layer else { return }
+            if docLayer.sublayers?.contains(where: { $0 === selectionLayer }) == true {
+                return
+            }
             if selectionLayer.superlayer == nil {
-                doc.wantsLayer = true
+                //doc.wantsLayer = true
                 selectionLayer.fillColor = nil
                 selectionLayer.strokeColor = NSColor.controlAccentColor.cgColor
                 selectionLayer.lineWidth = 1
                 selectionLayer.lineDashPattern = [4, 3]
+                selectionLayer.zPosition = 1_000_000  // 最上层
                 doc.layer?.addSublayer(selectionLayer)
                 //selectionLayer.isGeometryFlipped = true
+                
+                
+                if cachedDoubleClickRecognizer == nil {
+                    let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
+                    dbl.numberOfClicksRequired = 2
+                    dbl.buttonMask = 0x1 // 左键
+                    doc.addGestureRecognizer(dbl)
+                    cachedDoubleClickRecognizer = dbl
+                }
                 if cachedClickRecognizer == nil {
-                    let click = NSClickGestureRecognizer(target: self, action: #selector(handleSelectionClick(_:)))
+                    let click = NSClickGestureRecognizer(target: self, action: #selector(handleZoomClick(_:)))
                     doc.addGestureRecognizer(click)
                     cachedClickRecognizer = click
                 }
@@ -271,6 +321,58 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                               width:  rPx.size.width  / sx,
                               height: rPx.size.height / sy)
             return (rDoc, rPx)
+        }
+        
+        private var baseTitle: String? // 记住文件名
+        private func cleanBaseTitle(_ t: String) -> String {
+            var s = t
+            s = s.replacingOccurrences(of: #" — XY:.*$"#,         with: "", options: .regularExpression)
+            s = s.replacingOccurrences(of: #" — Selection:.*$"#,  with: "", options: .regularExpression)
+            return s
+        }
+        private func ratioText(_ w: Int, _ h: Int) -> String {
+            guard w > 0, h > 0 else { return "-" }
+            return String(format: "%.4f", Double(w) / Double(h))
+        }
+        
+        func installMouseDownMonitor() {
+            // 监听左键按下，但不“消费”事件
+            mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] e in
+                guard let self,
+                      let sv = self.scrollView,
+                      let doc = sv.documentView else { return e }
+
+                let cv   = sv.contentView
+                let pInCV = cv.convert(e.locationInWindow, from: nil)
+                var pDoc  = cv.convert(pInCV, to: doc)
+                pDoc = self.restrictP(p: pDoc)
+
+                let z = max(0.01, self.getZoom?() ?? 1)
+                let contentSize = CGSize(width: self.baseSize.width * z, height: self.baseSize.height * z)
+                let sx = max(0.0001, self.imagePixels.width  / max(0.0001, contentSize.width))
+                let sy = max(0.0001, self.imagePixels.height / max(0.0001, contentSize.height))
+                let px = Int(floor(pDoc.x * sx))
+                let py = Int(floor(pDoc.y * sy))
+                let x  = max(0, min(px, Int(self.imagePixels.width)  - 1))
+                let y  = max(0, min(py, Int(self.imagePixels.height) - 1))
+
+                if let win = sv.window {
+                    self.baseTitle = self.cleanBaseTitle(win.title)   // 记住文件名
+
+                    if let c = self.getColorAtPx?(x, y)?.usingColorSpace(.sRGB) {
+                        let r = Int(round(c.redComponent   * 255))
+                        let g = Int(round(c.greenComponent * 255))
+                        let b = Int(round(c.blueComponent  * 255))
+                        let a = Int(round(c.alphaComponent * 255))
+                        let html = String(format: "#%02X%02X%02X", r, g, b)
+                        win.title = "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
+                    } else {
+                        // 颜色取不到也更新标题（至少有 XY）
+                        win.title = "XY:(\(x),\(y))" // - (no color)"
+                    }
+                }
+                return e  // 不拦截事件，后续拖拽/双击照常工作
+            }
         }
     }
     func makeCoordinator() -> Coordinator {
@@ -321,6 +423,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             coord?.handleWheel(e)
         }
         
+        // ✅ 安装“按下就触发”的手势（不会与左键拖选框冲突）
+        context.coordinator.getColorAtPx = { x, y in self.colorProvider?(x, y) } // ← 新增
+        context.coordinator.installMouseDownMonitor()
         return scrollView
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
