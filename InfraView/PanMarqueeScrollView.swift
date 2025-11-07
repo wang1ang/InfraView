@@ -40,8 +40,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         let selectionLayer = CAShapeLayer()
         var onFinished: ((CGRect) -> Void)?
         var onChanged: ((CGRect) -> Void)?
-        
-        //var contentSize: CGSize = .zero
+    
         var imagePixels: CGSize = .zero
         var currentSelectionPx: CGRect?
         
@@ -57,6 +56,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         var mouseDownMonitor: Any?
         var getColorAtPx: ((Int, Int) -> NSColor?)?
+
+
         
         func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
@@ -97,15 +98,10 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             sv.reflectScrolledClipView(cv)
             
             // 缩放后重绘选框
-            if let rPx = currentSelectionPx {
-                let z = newZ
-                let contentSize = CGSize(width: baseSize.width * z, height: baseSize.height * z)
-                let sx = imagePixels.width  / max(0.0001, contentSize.width)
-                let sy = imagePixels.height / max(0.0001, contentSize.height)
-                let rDoc = CGRect(x: rPx.origin.x / sx,
-                                y: rPx.origin.y / sy,
-                                width:  rPx.size.width  / sx,
-                                height: rPx.size.height / sy)
+            if let rPx = currentSelectionPx, let m = makeMapper() {
+                let originDoc = m.pxToDoc(rPx.origin)
+                let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
+                let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
                 drawSelection(rectInDoc: rDoc)
             }
 
@@ -161,9 +157,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
         func restrictP(p: NSPoint) -> NSPoint {
             // 限制 p 在 image 内
-            let z = max(0.01, getZoom?() ?? 1)
+            guard let m = makeMapper() else { return p }
+            let clamped = m.clampDocPoint(p)
+            /*
             return NSPoint(x: min(max(0, p.x), baseSize.width * z),
                            y: min(max(0, p.y), baseSize.height * z))
+            */
+            return NSPoint(x: clamped.x, y: clamped.y)
         }
         @objc func handleMarquee(_ g: NSPanGestureRecognizer) {
             //scrollView
@@ -185,8 +185,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 NSCursor.crosshair.push()
                 selectionStartInDoc = p
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
-                if let s = selectionStartInDoc {
-                    let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
+                if let s = selectionStartInDoc, let m = makeMapper() {
+                    let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                     drawSelection(rectInDoc: snapped.rectDoc)
                     // 确保 selectionLayer 在最上层
                     /*
@@ -198,8 +198,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
-                guard !suppressMarquee, let s = selectionStartInDoc else { return }
-                let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
+                guard !suppressMarquee, let s = selectionStartInDoc, let m = makeMapper() else { return }
+                let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                 
                 drawSelection(rectInDoc: snapped.rectDoc)
                 currentSelectionPx = snapped.rectPx
@@ -224,8 +224,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     return
                 }
                 NSCursor.pop()
-                guard let s = selectionStartInDoc else { return }
-                let snapped = snapRectToPixels(start: s, end: p, imagePixels: imagePixels)
+                guard let s = selectionStartInDoc, let m = makeMapper() else { return }
+                let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                 drawSelection(rectInDoc: snapped.rectDoc)
                 currentSelectionPx = snapped.rectPx
                 onFinished?(snapped.rectPx)
@@ -288,40 +288,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             path.addRect(rectInDoc)
             selectionLayer.path = path // 只描边；fillColor 请保持为 nil
         }
-        private func snapRectToPixels(start sDoc: NSPoint,
-                                      end eDoc: NSPoint,
-                                      imagePixels: CGSize) -> (rectDoc: CGRect, rectPx: CGRect) {
-            let z = getZoom?() ?? 1
-            let contentSize = CGSize(width: baseSize.width * z, height: baseSize.height * z)
 
-            let sx = max(0.0001, imagePixels.width  / max(0.0001, contentSize.width))
-            let sy = max(0.0001, imagePixels.height / max(0.0001, contentSize.height))
-
-            // 文档点 → 像素
-            let sPx = NSPoint(x: sDoc.x * sx, y: sDoc.y * sy)
-            let ePx = NSPoint(x: eDoc.x * sx, y: eDoc.y * sy)
-
-            // 规范化 + 量子化（贴像素网格）
-            let x0 = floor(min(sPx.x, ePx.x))
-            let y0 = floor(min(sPx.y, ePx.y))
-            let x1 = floor(max(sPx.x, ePx.x))
-            let y1 = floor(max(sPx.y, ePx.y))
-
-            var rPx = CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
-
-            // 夹紧到图片像素边界
-            rPx.origin.x = max(0, min(rPx.origin.x, imagePixels.width))
-            rPx.origin.y = max(0, min(rPx.origin.y, imagePixels.height))
-            rPx.size.width  = max(0, min(rPx.maxX, imagePixels.width)  - rPx.origin.x)
-            rPx.size.height = max(0, min(rPx.maxY, imagePixels.height) - rPx.origin.y)
-
-            // 像素 → 文档点（用于画框）
-            let rDoc = CGRect(x: rPx.origin.x / sx,
-                              y: rPx.origin.y / sy,
-                              width:  rPx.size.width  / sx,
-                              height: rPx.size.height / sy)
-            return (rDoc, rPx)
-        }
         
         private var baseTitle: String? // 记住文件名
         private func cleanBaseTitle(_ t: String) -> String {
@@ -347,12 +314,10 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 var pDoc  = cv.convert(pInCV, to: doc)
                 pDoc = self.restrictP(p: pDoc)
 
-                let z = max(0.01, self.getZoom?() ?? 1)
-                let contentSize = CGSize(width: self.baseSize.width * z, height: self.baseSize.height * z)
-                let sx = max(0.0001, self.imagePixels.width  / max(0.0001, contentSize.width))
-                let sy = max(0.0001, self.imagePixels.height / max(0.0001, contentSize.height))
-                let px = Int(floor(pDoc.x * sx))
-                let py = Int(floor(pDoc.y * sy))
+                guard let m = self.makeMapper() else { return e }
+                let pPx = m.docToPx(pDoc)
+                let px = Int(floor(pPx.x))
+                let py = Int(floor(pPx.y))
                 let x  = max(0, min(px, Int(self.imagePixels.width)  - 1))
                 let y  = max(0, min(py, Int(self.imagePixels.height) - 1))
 
@@ -392,9 +357,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         // SwiftUI 的 View 用 NSHostingView 包起来变成 NSView，才能放入 documentView
         let hostingView = NSHostingView(rootView: content)
-        //hostingView.frame.size = contentSize
-        // 下面这个有必要吗？
-        //hostingView.sizingOptions = [.intrinsicContentSize]   // ← 让 documentView 按 SwiftUI 内在尺寸走
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = hostingView
@@ -473,34 +435,6 @@ final class CenteringClipView: NSClipView {
     }
 }
 
-
-func pixelRect(from selectionDoc: CGRect,
-               contentSize: CGSize,          // 当前显示尺寸（点）
-               imagePixels: CGSize) -> CGRect {
-
-    guard contentSize.width  > 0, contentSize.height > 0 else { return .zero }
-
-    let sx = imagePixels.width  / contentSize.width
-    let sy = imagePixels.height / contentSize.height
-
-    var r = CGRect(x: selectionDoc.minX * sx,
-                   y: selectionDoc.minY * sy,
-                   width:  selectionDoc.width  * sx,
-                   height: selectionDoc.height * sy)
-
-    // 可选：取整并夹紧在 0…像素边界
-    r.origin.x = max(0, floor(r.origin.x))
-    r.origin.y = max(0, floor(r.origin.y))
-    r.size.width  = max(0, floor(r.maxX) - r.origin.x)
-    r.size.height = max(0, floor(r.maxY) - r.origin.y)
-    r.size.width  = min(r.width,  imagePixels.width  - r.origin.x)
-    r.size.height = min(r.height, imagePixels.height - r.origin.y)
-    return r
-}
-
-
-
-
 /// 将原点限制在合法范围并处理“小图居中”的情形
 private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
     var o = o
@@ -512,3 +446,48 @@ private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
 }
 
 
+
+
+struct PixelMapper {
+    let baseSize: CGSize      // 图像“基准显示”尺寸（pt）
+    let zoom: CGFloat         // 当前缩放
+    let imagePixels: CGSize   // 图像像素尺寸（px）
+
+    var contentSize: CGSize { .init(width: baseSize.width * zoom,
+                                    height: baseSize.height * zoom) }
+
+    var sx: CGFloat { max(0.0001, imagePixels.width  / max(0.0001, contentSize.width))  }
+    var sy: CGFloat { max(0.0001, imagePixels.height / max(0.0001, contentSize.height)) }
+
+    func docToPx(_ p: CGPoint) -> CGPoint { .init(x: p.x * sx, y: p.y * sy) }
+    func pxToDoc(_ p: CGPoint) -> CGPoint { .init(x: p.x / sx, y: p.y / sy) }
+
+    func snapRectToPixels(docStart sDoc: CGPoint, docEnd eDoc: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
+        // doc → px
+        let sPx = docToPx(sDoc), ePx = docToPx(eDoc)
+        // 规范化 + 量子化
+        let x0 = floor(min(sPx.x, ePx.x)), y0 = floor(min(sPx.y, ePx.y))
+        let x1 = floor(max(sPx.x, ePx.x)), y1 = floor(max(sPx.y, ePx.y))
+        var rPx = CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
+        // 夹紧到图像边界
+        rPx.origin.x = max(0, min(rPx.origin.x, imagePixels.width))
+        rPx.origin.y = max(0, min(rPx.origin.y, imagePixels.height))
+        rPx.size.width  = max(0, min(rPx.maxX, imagePixels.width)  - rPx.origin.x)
+        rPx.size.height = max(0, min(rPx.maxY, imagePixels.height) - rPx.origin.y)
+        // px → doc
+        let rDoc = CGRect(origin: pxToDoc(rPx.origin),
+                          size:   .init(width: rPx.width / sx, height: rPx.height / sy))
+        return (rDoc, rPx)
+    }
+
+    func clampDocPoint(_ p: CGPoint) -> CGPoint {
+        let w = contentSize.width, h = contentSize.height
+        return .init(x: min(max(0, p.x), w), y: min(max(0, p.y), h))
+    }
+}
+extension PanMarqueeScrollView.Coordinator {
+    func makeMapper() -> PixelMapper? {
+        guard let getZ = getZoom else { return nil }
+        return PixelMapper(baseSize: baseSize, zoom: getZ(), imagePixels: imagePixels)
+    }
+}
