@@ -37,20 +37,18 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         private var suppressMarquee = false
         
         var selectionStartInDoc: NSPoint?
-        let selectionLayer = CAShapeLayer()
+        let selectionLayer = SelectionOverlay()
         var onFinished: ((CGRect) -> Void)?
         var onChanged: ((CGRect) -> Void)?
     
         var imagePixels: CGSize = .zero
-        var currentSelectionPx: CGRect?
         
         // 绑定进来，便于内部改 zoom
         var getZoom: (() -> CGFloat)?
         var setZoom: ((CGFloat) -> Void)?
         var baseSize: CGSize = .zero
         
-        // avoid alwasy create new click recognizers
-        //var cachedPressRecognizer: NSPressGestureRecognizer?
+        // Avoid alwasy create new click recognizers
         var cachedClickRecognizer: NSClickGestureRecognizer?
         var cachedDoubleClickRecognizer: NSClickGestureRecognizer?
 
@@ -97,11 +95,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             sv.reflectScrolledClipView(cv)
             
             // 缩放后重绘选框
-            if let rPx = currentSelectionPx, let m = makeMapper() {
+            if let rPx = selectionLayer.currentSelectionPx, let m = makeMapper() {
                 let originDoc = m.pxToDoc(rPx.origin)
                 let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
                 let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
-                drawSelection(rectInDoc: rDoc)
+                selectionLayer.updateInDoc(rectInDoc: rDoc)
             }
 
         }
@@ -137,13 +135,12 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         @objc func handleZoomClick(_ g: NSClickGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
-            guard let path = selectionLayer.path else { return }
+            guard let path = selectionLayer.layer.path else { return }
             let pDoc = g.location(in: doc)  // overlay 坐标
             if path.contains(pDoc) {
                     onSelectionTap?(pDoc)                // 交给外部放大
             } else {
-                selectionLayer.path = nil
-                currentSelectionPx = nil
+                selectionLayer.clear()
                 if let win = scrollView?.window {
                     let base = baseTitle ?? cleanBaseTitle(win.title)
                     win.title = base
@@ -176,7 +173,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             p = restrictP(p: p)
             switch g.state {
             case .began:
-                if let path = selectionLayer.path, path.contains(p) {
+                if let path = selectionLayer.layer.path, path.contains(p) {
                     suppressMarquee = true
                     return
                 }
@@ -186,22 +183,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc, let m = makeMapper() {
                     let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
-                    drawSelection(rectInDoc: snapped.rectDoc)
-                    // 确保 selectionLayer 在最上层
-                    /*
-                    if let superlayer = selectionLayer.superlayer {
-                        selectionLayer.removeFromSuperlayer()
-                        superlayer.addSublayer(selectionLayer)
-                    }*/
-                    currentSelectionPx = snapped.rectPx
+                    selectionLayer.update(snapped: snapped)
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
                 guard !suppressMarquee, let s = selectionStartInDoc, let m = makeMapper() else { return }
                 let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                 
-                drawSelection(rectInDoc: snapped.rectDoc)
-                currentSelectionPx = snapped.rectPx
+                selectionLayer.update(snapped: snapped)
                 onChanged?(snapped.rectPx)
                 
                 let w = Int(snapped.rectPx.width.rounded())
@@ -225,8 +214,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 NSCursor.pop()
                 guard let s = selectionStartInDoc, let m = makeMapper() else { return }
                 let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
-                drawSelection(rectInDoc: snapped.rectDoc)
-                currentSelectionPx = snapped.rectPx
+                selectionLayer.update(snapped: snapped)
                 onFinished?(snapped.rectPx)
                 selectionStartInDoc = nil
                 let w = Int(snapped.rectPx.width.rounded())
@@ -247,47 +235,20 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
 
         private func ensureSelectionLayer(on doc: NSView) {
-            doc.wantsLayer = true
-            guard let docLayer = doc.layer else { return }
-            if docLayer.sublayers?.contains(where: { $0 === selectionLayer }) == true {
-                return
+            selectionLayer.attachIfNeeded(to: doc)
+            if cachedDoubleClickRecognizer == nil {
+                let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
+                dbl.numberOfClicksRequired = 2
+                dbl.buttonMask = 0x1 // 左键
+                doc.addGestureRecognizer(dbl)
+                cachedDoubleClickRecognizer = dbl
             }
-            if selectionLayer.superlayer == nil {
-                //doc.wantsLayer = true
-                selectionLayer.fillColor = nil
-                selectionLayer.strokeColor = NSColor.controlAccentColor.cgColor
-                selectionLayer.lineWidth = 1
-                selectionLayer.lineDashPattern = [4, 3]
-                selectionLayer.zPosition = 1_000_000  // 最上层
-                doc.layer?.addSublayer(selectionLayer)
-                //selectionLayer.isGeometryFlipped = true
-                
-                
-                if cachedDoubleClickRecognizer == nil {
-                    let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
-                    dbl.numberOfClicksRequired = 2
-                    dbl.buttonMask = 0x1 // 左键
-                    doc.addGestureRecognizer(dbl)
-                    cachedDoubleClickRecognizer = dbl
-                }
-                if cachedClickRecognizer == nil {
-                    let click = NSClickGestureRecognizer(target: self, action: #selector(handleZoomClick(_:)))
-                    doc.addGestureRecognizer(click)
-                    cachedClickRecognizer = click
-                }
+            if cachedClickRecognizer == nil {
+                let click = NSClickGestureRecognizer(target: self, action: #selector(handleZoomClick(_:)))
+                doc.addGestureRecognizer(click)
+                cachedClickRecognizer = click
             }
         }
-        private func drawSelection(rectInDoc: CGRect) {
-            guard rectInDoc.width > 0, rectInDoc.height > 0 else {
-                selectionLayer.path = nil
-                currentSelectionPx = nil
-                return
-            }
-            let path = CGMutablePath()
-            path.addRect(rectInDoc)
-            selectionLayer.path = path // 只描边；fillColor 请保持为 nil
-        }
-
         
         private var baseTitle: String? // 记住文件名
         private func cleanBaseTitle(_ t: String) -> String {
@@ -304,11 +265,33 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         func installMouseDownMonitor() {
             // 监听左键按下，但不“消费”事件
             mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] e in
+                
+
+                
                 guard let self,
                       let sv = self.scrollView,
                       let doc = sv.documentView else { return e }
 
                 let cv   = sv.contentView
+                
+                
+                
+                //
+                if selectionLayer.layer.path != nil {
+                    let docRectInCV = cv.convert(doc.bounds, from: doc)
+                    let pInCV = cv.convert(e.locationInWindow, from: nil)
+                    if !docRectInCV.contains(pInCV) {
+                        selectionLayer.clear()
+                        if let win = sv.window {
+                            let base = baseTitle ?? cleanBaseTitle(win.title)
+                            win.title = base
+                        }
+                    }
+                }
+                
+                
+                
+                
                 let pInCV = cv.convert(e.locationInWindow, from: nil)
                 var pDoc  = cv.convert(pInCV, to: doc)
                 pDoc = self.restrictP(p: pDoc)
@@ -492,5 +475,41 @@ extension NSEvent {
     var hasCommand: Bool {
         //e.modifierFlags.contains(.command),
         modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+    }
+}
+
+
+
+
+
+
+final class SelectionOverlay {
+    let layer = CAShapeLayer()
+    var currentSelectionPx: CGRect?
+
+    init() {
+        layer.fillColor = nil
+        layer.strokeColor = NSColor.controlAccentColor.cgColor
+        layer.lineWidth = 1
+        layer.lineDashPattern = [4, 3]
+        layer.zPosition = 1_000_000
+    }
+    func attachIfNeeded(to doc: NSView) {
+        doc.wantsLayer = true
+        guard let L = doc.layer else { return }
+        if layer.superlayer !== L { layer.removeFromSuperlayer(); L.addSublayer(layer) }
+    }
+    func updateInDoc(rectInDoc: CGRect?) {
+        guard let r = rectInDoc, r.width > 0, r.height > 0 else { layer.path = nil; return }
+        let path = CGMutablePath(); path.addRect(r)
+        layer.path = path
+    }
+    func update(snapped: (rectDoc: CGRect, rectPx: CGRect)) {
+        updateInDoc(rectInDoc: snapped.rectDoc)
+        currentSelectionPx = snapped.rectPx
+    }
+    func clear() {
+        layer.path = nil
+        currentSelectionPx = nil
     }
 }
