@@ -61,8 +61,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
-                  //e.modifierFlags.contains(.command),
-                  e.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+                  e.hasCommand,
                   let getZ = getZoom,
                   let setZ = setZoom,
                   let doc = sv.documentView else { return }
@@ -424,9 +423,7 @@ final class CenteringClipView: NSClipView {
     }
     override func scrollWheel(with event: NSEvent) {
         // 只有按下 ⌘ 时才拦截；否则交给默认滚动
-        //if event.modifierFlags.contains(.command)
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command)
+        if event.hasCommand
         {
             onCommandScroll?(event)
             return  // 吞掉事件
@@ -489,5 +486,11 @@ extension PanMarqueeScrollView.Coordinator {
     func makeMapper() -> PixelMapper? {
         guard let getZ = getZoom else { return nil }
         return PixelMapper(baseSize: baseSize, zoom: getZ(), imagePixels: imagePixels)
+    }
+}
+extension NSEvent {
+    var hasCommand: Bool {
+        //e.modifierFlags.contains(.command),
+        modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
     }
 }
