@@ -54,6 +54,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         var mouseDownMonitor: Any?
         var mouseUpMonitor: Any?
+        deinit {
+            if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
+            if let m = mouseUpMonitor   { NSEvent.removeMonitor(m)   }
+        }
+
         var getColorAtPx: ((Int, Int) -> NSColor?)?
 
         let windowTitle = WindowTitle()
