@@ -122,14 +122,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             g.setTranslation(.zero, in: cv)
             var o = cv.bounds.origin
             o.x -= t.x; o.y -= t.y
-
-            let dw = doc.bounds.width, dh = doc.bounds.height
-            let cw = cv.bounds.width, ch = cv.bounds.height
-
-            // 不能滚就锁定居中
-            o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
-            o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
-
+            
+            o = clampOrigin(o, cv: cv, doc: doc)
             cv.scroll(to: o)
             sv.reflectScrolledClipView(cv)
         }
