@@ -19,16 +19,16 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     var colorProvider: ((Int, Int) -> NSColor)? = nil
 
     init(
-        imagePixels: CGSize,
-        baseSize: CGSize,
-        zoom: Binding<CGFloat>,
-        @ViewBuilder content: () -> Content) {
+            imagePixels: CGSize,
+            baseSize: CGSize,
+            zoom: Binding<CGFloat>,
+            @ViewBuilder content: () -> Content) {
         self._zoom = zoom
-            self.imagePixels = imagePixels
+        self.imagePixels = imagePixels
         self.baseSize = baseSize
         self.content = content()
     }
-    
+        
     final class Coordinator {
         var scrollView: NSScrollView?
         var hostingView: NSHostingView<Content>?

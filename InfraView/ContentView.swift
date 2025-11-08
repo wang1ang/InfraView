@@ -237,7 +237,7 @@ struct Viewer: View {
 
                     if let err = viewerVM.loadingError {
                         Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: err)
-                    } else if let img = viewerVM.currentImage {
+                    } else if let img = viewerVM.processedImage {
                         ZoomableImage(
                             image: img,
                             zoom: Binding(get: { viewerVM.zoom }, set: { v in
@@ -271,7 +271,7 @@ struct Viewer: View {
                         }
                     }
                 }
-                .onChange(of: viewerVM.currentImage) { _, newImg in
+                .onChange(of: viewerVM.processedImage) { _, newImg in
                     if let newImg {
                         updateStatus(url: url, image: newImg, index: index, total: store.imageURLs.count)
                         StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))

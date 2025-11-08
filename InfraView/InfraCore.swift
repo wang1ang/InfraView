@@ -76,62 +76,11 @@ enum BookmarkStore {
 
 
 // Unknown functions
-// MARK: - ImageRepository（把解码独立）
-protocol ImageRepository {
-    func load(at url: URL) throws -> (image: NSImage, pixelSize: CGSize)
-}
-
-final class ImageRepositoryImpl: ImageRepository {
-    func load(at url: URL) throws -> (image: NSImage, pixelSize: CGSize) {
-        // 直接使用你现有 decodeCGImageApplyingOrientation/loadCGForURL 的逻辑拼装
-        let (cgOpt, px, err) = loadCGForURL(url)      // 从下方 Helpers 复用
-        guard let cg = cgOpt else { throw NSError(domain: "InfraView", code: 2, userInfo: [NSLocalizedDescriptionKey: err ?? "Unsupported"]) }
-        let scale = displayScaleFactor()
-        let pt = NSSize(width: px.width/scale, height: px.height/scale)
-        return (NSImage(cgImage: cg, size: pt), px)
-    }
-}
-
-// MARK: - 轻量 LRU 缓存 + 预加载
-final class ImageCache {
-    // ⚠️ 约定：仅在主线程读写（调用方已在 MainActor 切回主线程）
-    private var dict: [URL:NSImage] = [:]
-    private var order: [URL] = []
-    private let cap: Int
-    init(capacity: Int = 8) { self.cap = capacity }
-    func get(_ u: URL) -> NSImage? { dict[u] }
-    func set(_ u: URL, _ img: NSImage) {
-        dict[u] = img; order.removeAll{ $0==u }; order.append(u)
-        while order.count > cap { dict.removeValue(forKey: order.removeFirst()) }
-    }
-    func trim(keeping set: Set<URL>) {
-        order.removeAll{ !set.contains($0) }
-        dict = dict.filter{ set.contains($0.key) }
-    }
-}
-
-final class ImagePreloader {
-    private let repo: ImageRepository, cache: ImageCache
-    init(repo: ImageRepository, cache: ImageCache) { self.repo = repo; self.cache = cache }
-    func preload(adjacentOf idx: Int, in urls: [URL]) {
-        guard !urls.isEmpty else { return }
-        for i in [ (idx-1+urls.count)%urls.count, (idx+1)%urls.count ] {
-            let u = urls[i]
-            if cache.get(u) == nil {
-                DispatchQueue.global(qos: .background).async {
-                    if let (img, _) = try? self.repo.load(at: u) {
-                        DispatchQueue.main.async { self.cache.set(u, img) }
-                    }
-                }
-            }
-        }
-    }
-}
 
 // MARK: - WindowSizer（把窗口/滚动条/visibleFrame计算集中）
 protocol WindowSizer {
     func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize
-    func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat
+    func desktopFitScale(for image: NSImage, in window: NSWindow) -> CGFloat
     func isBigOnDesktop(_ image: NSImage, window: NSWindow) -> Bool
     func resizeWindow(toContent size: CGSize, mode: FitMode)
 }
@@ -175,16 +124,18 @@ final class WindowSizerImpl: WindowSizer {
                       height: floor(base.height * scale))
 
     }
-    func accurateFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
+    func desktopFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
         // 按屏幕大小计算可视面积
         let base = naturalPointSize(image)
-        var avail = maxContentLayoutSizeInVisibleFrame(window)
-
+        let avail = maxContentLayoutSizeInVisibleFrame(window)
+        /*
         let (vBar, hBar) = legacyScrollbarThickness()
         for _ in 0..<2 {
+            // 缩放到屏幕的大小
             let s = min(avail.width / max(base.width, 1),
                         avail.height / max(base.height, 1))
             let w = floor(base.width * s), h = floor(base.height * s)
+            
             let needV = h > avail.height
             let needH = w > avail.width
             var next = avail
@@ -193,6 +144,7 @@ final class WindowSizerImpl: WindowSizer {
             if next == avail { return s }
             avail = next
         }
+        */
         return min(avail.width / max(base.width, 1),
                    avail.height / max(base.height, 1))
     }
