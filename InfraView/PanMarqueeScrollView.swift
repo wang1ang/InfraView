@@ -56,7 +56,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var mouseUpMonitor: Any?
         var getColorAtPx: ((Int, Int) -> NSColor?)?
 
-
+        let windowTitle = WindowTitle()
         
         func handleWheel(_ e: NSEvent) {
             guard let sv = scrollView,
@@ -142,10 +142,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     onSelectionTap?(pDoc)                // 交给外部放大
             } else {
                 selectionLayer.clear()
-                if let win = scrollView?.window {
-                    let base = baseTitle ?? cleanBaseTitle(win.title)
-                    win.title = base
-                }
+                windowTitle.restoreBase(of: scrollView?.window)
             }
         }
         @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
@@ -198,14 +195,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let h = Int(snapped.rectPx.height.rounded())
                 let x = Int(snapped.rectPx.origin.x.rounded())
                 let y = Int(snapped.rectPx.origin.y.rounded())
-                if let win = scrollView?.window {
-                    if w > 0 && h > 0 {
-                        win.title = "XY:(\(x),\(y))(\(w)x\(h) pixels, \(ratioText(w,h)))"
-                    } else {
-                        // 没有有效选框时，拖动中标题可以清空为纯坐标或直接用空
-                        win.title = "XY:(\(x),\(y))"
-                    }
-                }
+                windowTitle.showDraggingRect(of: scrollView?.window, x: x, y: y, w: w, h: h)
             case .ended, .cancelled:
                 if suppressMarquee {
                     onSelectionTap?(p)
@@ -222,14 +212,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let h = Int(snapped.rectPx.height.rounded())
                 let x = Int(snapped.rectPx.origin.x.rounded())
                 let y = Int(snapped.rectPx.origin.y.rounded())
-                if let win = scrollView?.window {
-                    let base = baseTitle ?? cleanBaseTitle(win.title)
-                    if w > 0 && h > 0 {
-                        win.title = "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratioText(w,h))"
-                    } else {
-                        win.title = base
-                    }
-                }
+                windowTitle.showSelection(of: scrollView?.window, x: x, y: y, w: w, h: h)
             default:
                 break
             }
@@ -250,19 +233,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 cachedClickRecognizer = click
             }
         }
-        
-        public var baseTitle: String? // 记住文件名
-        private func cleanBaseTitle(_ t: String) -> String {
-            var s = t
-            s = s.replacingOccurrences(of: #" — XY:.*$"#,         with: "", options: .regularExpression)
-            s = s.replacingOccurrences(of: #" — Selection:.*$"#,  with: "", options: .regularExpression)
-            return s
-        }
-        private func ratioText(_ w: Int, _ h: Int) -> String {
-            guard w > 0, h > 0 else { return "-" }
-            return String(format: "%.4f", Double(w) / Double(h))
-        }
-        
+
         func installMouseDownMonitor() {
             // 监听左键按下，但不“消费”事件
             mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] e in
@@ -292,32 +263,16 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let py = Int(floor(pPx.y))
                 let x  = max(0, min(px, Int(self.imagePixels.width)  - 1))
                 let y  = max(0, min(py, Int(self.imagePixels.height) - 1))
-
-                if let win = sv.window {
-                    if baseTitle == nil {
-                        self.baseTitle = self.cleanBaseTitle(win.title)   // 记住文件名
-                    }
-                    if let c = self.getColorAtPx?(x, y)?.usingColorSpace(.sRGB) {
-                        let r = Int(round(c.redComponent   * 255))
-                        let g = Int(round(c.greenComponent * 255))
-                        let b = Int(round(c.blueComponent  * 255))
-                        let a = Int(round(c.alphaComponent * 255))
-                        let html = String(format: "#%02X%02X%02X", r, g, b)
-                        win.title = "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
-                    } else {
-                        // 颜色取不到也更新标题（至少有 XY）
-                        win.title = "XY:(\(x),\(y))" // - (no color)"
-                    }
-                }
+                
+                let color = getColorAtPx?(x, y)
+                self.windowTitle.showColor(of: sv.window,x:x, y:y, color:color)
                 return e  // 不拦截事件，后续拖拽/双击照常工作
             }
             // 左键抬起：一律还原文件名
             mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] e in
                 guard let self,
-                      let sv = self.scrollView,
-                      let win = sv.window else { return e }
-                let base = self.baseTitle ?? self.cleanBaseTitle(win.title)
-                win.title = base
+                      let sv = self.scrollView else { return e }
+                self.windowTitle.restoreBase(of: sv.window)
                 return e
             }
         }
@@ -380,7 +335,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         //nsView.reflectScrolledClipView(nsView.contentView)
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
-        context.coordinator.baseTitle = nil
+        context.coordinator.windowTitle.reset()
         //context.coordinator.updateDocSizeForZoom()
     }
 }
@@ -514,3 +469,108 @@ final class SelectionOverlay {
         currentSelectionPx = nil
     }
 }
+
+
+final class WindowTitle {
+    private(set) var base: String = ""
+    
+    func reset() {
+        base = ""
+    }
+    
+    func captureBase(from current: String) {
+        base = current
+            .replacingOccurrences(of: #" — XY:.*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #" — Selection:.*$"#, with: "", options: .regularExpression)
+    }
+    
+    private func ensureBase(from window: NSWindow) {
+        if base.isEmpty {
+            captureBase(from: window.title)
+        }
+    }
+    
+    func ratioText(_ w: Int, _ h: Int) -> String {
+        (w > 0 && h > 0) ? String(format: "%.4f", Double(w) / Double(h)) : "-"
+    }
+    
+    func xy(_ x: Int, _ y: Int) -> String {
+        "XY:(\(x),\(y))"
+    }
+    
+    func selection(_ x: Int, _ y: Int, _ w: Int, _ h: Int) -> String {
+        "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratioText(w,h))"
+    }
+    
+    func colorLine(x: Int, y: Int, rgba: (Int, Int, Int, Int)?, html: String?) -> String {
+        if let (r, g, b, a) = rgba, let html = html {
+            return "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
+        } else {
+            return xy(x, y)
+        }
+    }
+    
+    // window - restoreBase
+    
+    func restoreBase(on window: NSWindow) {
+        ensureBase(from: window)
+        window.title = base
+    }
+    
+    func restoreBase(of window: NSWindow?) {
+        guard let window else { return }
+        restoreBase(on: window)
+    }
+    
+    // window - dragging
+    
+    func showDraggingRect(on window: NSWindow, x: Int, y: Int, w: Int, h: Int) {
+        if w > 0 && h > 0 {
+            let ratio = ratioText(w, h)
+            window.title = "\(xy(x, y))(\(w)x\(h) pixels, \(ratio))"
+        } else {
+            window.title = xy(x, y)
+        }
+    }
+    
+    func showDraggingRect(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
+        guard let window else { return }
+        showDraggingRect(on: window, x: x, y: y, w: w, h: h)
+    }
+    
+    // window - selection
+    
+    func showSelection(on window: NSWindow, x: Int, y: Int, w: Int, h: Int) {
+        ensureBase(from: window)
+        if w > 0 && h > 0 {
+            window.title = selection(x, y, w, h)
+        } else {
+            window.title = base
+        }
+    }
+    
+    func showSelection(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
+        guard let window else { return }
+        showSelection(on: window, x: x, y: y, w: w, h: h)
+    }
+    
+    // window - color
+    
+    func showColor(on window: NSWindow, x: Int, y: Int, color: NSColor?) {
+        ensureBase(from: window)
+        if let c = color?.usingColorSpace(.sRGB) {
+            let r = Int(round(c.redComponent   * 255))
+            let g = Int(round(c.greenComponent * 255))
+            let b = Int(round(c.blueComponent  * 255))
+            let a = Int(round(c.alphaComponent * 255))
+            let html = String(format: "#%02X%02X%02X", r, g, b)
+            window.title = colorLine(x: x, y: y, rgba: (r, g, b, a), html: html)
+        } else {
+            window.title = colorLine(x: x, y: y, rgba: nil, html: nil)
+        }
+    }
+
+    func showColor(of window: NSWindow?, x: Int, y: Int, color: NSColor?) {
+        guard let window else { return }
+        showColor(on: window, x: x, y: y, color: color)
+    }}
