@@ -47,8 +47,8 @@ final class ViewerViewModel: ObservableObject {
             case .doNotFit:           fitToScreen = false
             case .fitWindowToImage:   fitToScreen = false
             case .fitImageToWindow:   fitToScreen = true
-            case .fitOnlyBigToWindow: fitToScreen = isBigInCurrentWindow(img, window: window)
-            case .fitOnlyBigToDesktop:fitToScreen = false //sizer.isBigOnDesktop(img, window: window)
+            case .fitOnlyBigToWindow: fitToScreen = true
+            case .fitOnlyBigToDesktop:fitToScreen = false
             }
         // TODO: remove fitToggle
         case .fitToggle(let on):
