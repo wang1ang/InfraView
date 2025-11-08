@@ -471,105 +471,82 @@ final class SelectionOverlay {
 
 
 final class WindowTitle {
-    private(set) var base: String = ""
-    
+    private var base: String?
+
+    /// 切图 / 视图更新时调用，清空缓存的 base
     func reset() {
-        base = ""
+        base = nil
     }
-    
-    func captureBase(from current: String) {
-        base = current
-            .replacingOccurrences(of: #" — XY:.*$"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #" — Selection:.*$"#, with: "", options: .regularExpression)
+
+    private func cleanedTitle(from title: String) -> String {
+        title
+            .replacingOccurrences(of: #" — XY:.*$"#,
+                                  with: "",
+                                  options: .regularExpression)
+            .replacingOccurrences(of: #" — Selection:.*$"#,
+                                  with: "",
+                                  options: .regularExpression)
     }
-    
+
     private func ensureBase(from window: NSWindow) {
-        if base.isEmpty {
-            captureBase(from: window.title)
+        if base == nil || base!.isEmpty {
+            base = cleanedTitle(from: window.title)
         }
     }
-    
-    func ratioText(_ w: Int, _ h: Int) -> String {
+
+    private func ratioText(_ w: Int, _ h: Int) -> String {
         (w > 0 && h > 0) ? String(format: "%.4f", Double(w) / Double(h)) : "-"
     }
-    
-    func xy(_ x: Int, _ y: Int) -> String {
+
+    private func xy(_ x: Int, _ y: Int) -> String {
         "XY:(\(x),\(y))"
     }
-    
-    func selection(_ x: Int, _ y: Int, _ w: Int, _ h: Int) -> String {
-        "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratioText(w,h))"
-    }
-    
-    func colorLine(x: Int, y: Int, rgba: (Int, Int, Int, Int)?, html: String?) -> String {
-        if let (r, g, b, a) = rgba, let html = html {
-            return "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
-        } else {
-            return xy(x, y)
-        }
-    }
-    
-    // window - restoreBase
-    
-    func restoreBase(on window: NSWindow) {
-        ensureBase(from: window)
-        window.title = base
-    }
-    
+
+    // MARK: - Public API（和你现在的调用保持一致）
+
     func restoreBase(of window: NSWindow?) {
-        guard let window else { return }
-        restoreBase(on: window)
+        guard let win = window else { return }
+        ensureBase(from: win)
+        win.title = base ?? win.title
     }
-    
-    // window - dragging
-    
-    func showDraggingRect(on window: NSWindow, x: Int, y: Int, w: Int, h: Int) {
+
+    func showDraggingRect(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
+        guard let win = window else { return }
         if w > 0 && h > 0 {
             let ratio = ratioText(w, h)
-            window.title = "\(xy(x, y))(\(w)x\(h) pixels, \(ratio))"
+            win.title = "\(xy(x, y))(\(w)x\(h) pixels, \(ratio))"
         } else {
-            window.title = xy(x, y)
+            win.title = xy(x, y)
         }
     }
-    
-    func showDraggingRect(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
-        guard let window else { return }
-        showDraggingRect(on: window, x: x, y: y, w: w, h: h)
-    }
-    
-    // window - selection
-    
-    func showSelection(on window: NSWindow, x: Int, y: Int, w: Int, h: Int) {
-        ensureBase(from: window)
-        if w > 0 && h > 0 {
-            window.title = selection(x, y, w, h)
-        } else {
-            window.title = base
-        }
-    }
-    
+
     func showSelection(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
-        guard let window else { return }
-        showSelection(on: window, x: x, y: y, w: w, h: h)
+        guard let win = window else { return }
+        ensureBase(from: win)
+        guard let base = base else { return }
+
+        if w > 0 && h > 0 {
+            let ratio = ratioText(w, h)
+            win.title = "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratio)"
+        } else {
+            win.title = base
+        }
     }
-    
-    // window - color
-    
-    func showColor(on window: NSWindow, x: Int, y: Int, color: NSColor?) {
-        ensureBase(from: window)
+
+    func showColor(of window: NSWindow?, x: Int, y: Int, color: NSColor?) {
+        guard let win = window else { return }
+        ensureBase(from: win)
+
         if let c = color?.usingColorSpace(.sRGB) {
             let r = Int(round(c.redComponent   * 255))
             let g = Int(round(c.greenComponent * 255))
             let b = Int(round(c.blueComponent  * 255))
             let a = Int(round(c.alphaComponent * 255))
             let html = String(format: "#%02X%02X%02X", r, g, b)
-            window.title = colorLine(x: x, y: y, rgba: (r, g, b, a), html: html)
+            win.title = "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
         } else {
-            window.title = colorLine(x: x, y: y, rgba: nil, html: nil)
+            win.title = xy(x, y)
         }
     }
+}
 
-    func showColor(of window: NSWindow?, x: Int, y: Int, color: NSColor?) {
-        guard let window else { return }
-        showColor(on: window, x: x, y: y, color: color)
-    }}
