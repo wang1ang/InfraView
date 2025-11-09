@@ -91,7 +91,7 @@ final class WindowSizerImpl: WindowSizer {
 
         let base = naturalPointSize(image)
         // 最大 contentLayout 尺寸（无余量）
-        var avail = maxContentLayoutSizeInVisibleFrame(window)
+        var avail = maxAvailableContentSize(window)
 
         // 估算 legacy 滚动条厚度
         let (vBar, hBar) = legacyScrollbarThickness()
@@ -127,7 +127,7 @@ final class WindowSizerImpl: WindowSizer {
     func desktopFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
         // 按屏幕大小计算可视面积
         let base = naturalPointSize(image)
-        let avail = maxContentLayoutSizeInVisibleFrame(window)
+        let avail = maxAvailableContentSize(window)
         /*
         let (vBar, hBar) = legacyScrollbarThickness()
         for _ in 0..<2 {
@@ -148,20 +148,20 @@ final class WindowSizerImpl: WindowSizer {
         return min(avail.width / max(base.width, 1),
                    avail.height / max(base.height, 1))
     }
-    func isBigOnDesktop(_ img: NSImage, window: NSWindow) -> Bool { /* 用 isBigOnThisDesktop + maxContentLayoutSizeInVisibleFrame */
+    func isBigOnDesktop(_ img: NSImage, window: NSWindow) -> Bool { /* 用 isBigOnThisDesktop + maxAvailableContentSize */
         let natural = naturalPointSize(img)
-        let maxLayout = maxContentLayoutSizeInVisibleFrame(window)
+        let maxLayout = maxAvailableContentSize(window)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
     func resizeWindow(toContent size: CGSize, mode: FitMode) { /* 用 resizeWindowToContentSize(scrollbarAware: mode != .fitOnlyBigToDesktop) */
         let aware = (mode != .fitOnlyBigToDesktop)
         resizeWindowToContentSize(size, scrollbarAware: aware)
     }
-    // 私有：搬 maxContentLayoutSizeInVisibleFrame / legacyScrollbarThickness 等 Helpers
+    // 私有：搬 maxAvailableContentSize / legacyScrollbarThickness 等 Helpers
     private func currentWindow() -> NSWindow? {
         NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible }
     }
-    private func maxContentLayoutSizeInVisibleFrame(_ window: NSWindow) -> CGSize {
+    private func maxAvailableContentSize(_ window: NSWindow) -> CGSize {
         // 1) 屏幕的可用矩形（已扣除菜单栏/Dock）
         let vf = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
 
