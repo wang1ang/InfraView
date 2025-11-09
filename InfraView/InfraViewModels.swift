@@ -27,7 +27,10 @@ final class ViewerViewModel: ObservableObject {
     }
 
     // 统一驱动：新图 / 切换 Fit / 改 Zoom 都走这里
-    enum Reason: Equatable { case newImage, fitToggle(Bool), zoom(CGFloat) }
+    // 给出两个东西：
+    // 1. 要不要fit
+    // 2. 决定窗口尺寸
+    enum Reason: Equatable { case newImage, fitToggle, zoom(CGFloat) }
     func drive(reason: Reason, mode: FitMode, window: NSWindow) {
         // 没有 processedImage 直接返回
         guard let img = processedImage else { return }
@@ -51,8 +54,14 @@ final class ViewerViewModel: ObservableObject {
             case .fitOnlyBigToDesktop:fitToScreen = false
             }
         // TODO: remove fitToggle
-        case .fitToggle(let on):
-            fitToScreen = on
+        case .fitToggle:
+            switch mode {
+            case .doNotFit:           fitToScreen = false
+            case .fitWindowToImage:   fitToScreen = false
+            case .fitImageToWindow:   fitToScreen = true
+            case .fitOnlyBigToWindow: fitToScreen = true
+            case .fitOnlyBigToDesktop:fitToScreen = false
+            }
         case .zoom(let v):
             fitToScreen = false
             zoom = v
@@ -63,12 +72,32 @@ final class ViewerViewModel: ObservableObject {
         var shouldResizeWindow = mode == .fitWindowToImage || mode == .fitOnlyBigToDesktop
         if (mode == .fitImageToWindow || mode == .fitOnlyBigToWindow), reason != .newImage {
             shouldResizeWindow = false
-        }
+        }/*
+        if mode == .fitWindowToImage, case .zoom = reason {
+            shouldResizeWindow = true
+        }*/
         if shouldResizeWindow {
+            print("resizeWindow")
             sizer.resizeWindow(toContent: targetSize, mode: mode)
         }
+        fitImageToWindow(window: window)
     }
+    func fitImageToWindow(window: NSWindow) {
+        guard let img = processedImage else { return }
+        if !fitToScreen { return }
+        print("fit to screen")
+        let naturalPt = naturalPointSize(img)
+        let baseW = max(naturalPt.width, 1)
+        let baseH = max(naturalPt.height, 1)
+        let targetSize = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
+        //let targetSize = sizer.fittedContentSize(for: img, in: window)
+        let statusbar = StatusBarStore.shared.height
 
+        let scaleX = targetSize.width / baseW
+        let scaleY = (targetSize.height - statusbar) / baseH
+        zoom = min(scaleX, scaleY)
+    }
+    
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
     func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
         guard urls.indices.contains(index) else { return }
@@ -158,7 +187,7 @@ final class ViewerViewModel: ObservableObject {
         
         processedImage = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
         
-        drive(reason: .fitToggle(true), mode: fitMode, window: window)
+        drive(reason: .fitToggle, mode: fitMode, window: window)
         //onScaleChanged?(Int(round(zoom * 100)))
     }
 }
