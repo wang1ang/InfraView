@@ -9,12 +9,13 @@ import Combine
 final class ViewerViewModel: ObservableObject {
     // 状态
     @Published var zoom: CGFloat = 1
-    @Published var fitToScreen = false
+    @Published var imageAutoFit = false
     @Published var processedImage: NSImage?
     @Published var loadingError: String?
 
     private var baseImage: NSImage?
     private var currentURL: URL?
+    private var currentFitMode: FitMode = .fitOnlyBigToWindow
     
     // 依赖注入
     private let repo: ImageRepository // 磁盘加载
@@ -32,9 +33,11 @@ final class ViewerViewModel: ObservableObject {
     // 2. 决定窗口尺寸
     enum Reason: Equatable { case newImage, fitToggle, zoom(CGFloat) }
     func drive(reason: Reason, mode: FitMode, window: NSWindow) {
+        if reason == .newImage || reason == .fitToggle {
+            currentFitMode = mode
+        }
         // 没有 processedImage 直接返回
         guard let img = processedImage else { return }
-        
 
         switch reason {
         case .newImage:
@@ -46,45 +49,60 @@ final class ViewerViewModel: ObservableObject {
             }
             
             // 初始状态
-            switch mode {
-            case .doNotFit:           fitToScreen = false
-            case .fitWindowToImage:   fitToScreen = false
-            case .fitImageToWindow:   fitToScreen = true
-            case .fitOnlyBigToWindow: fitToScreen = true
-            case .fitOnlyBigToDesktop:fitToScreen = false
+            switch currentFitMode {
+            case .doNotFit:           imageAutoFit = false
+            case .fitWindowToImage:   imageAutoFit = false
+            case .fitImageToWindow:   imageAutoFit = true
+            case .fitOnlyBigToWindow: imageAutoFit = true
+            case .fitOnlyBigToDesktop:imageAutoFit = false
             }
         // TODO: remove fitToggle
         case .fitToggle:
-            switch mode {
-            case .doNotFit:           fitToScreen = false
-            case .fitWindowToImage:   fitToScreen = false
-            case .fitImageToWindow:   fitToScreen = true
-            case .fitOnlyBigToWindow: fitToScreen = true
-            case .fitOnlyBigToDesktop:fitToScreen = false
+            switch currentFitMode {
+            case .doNotFit:           imageAutoFit = false
+            case .fitWindowToImage:   imageAutoFit = false
+            case .fitImageToWindow:   imageAutoFit = true
+            case .fitOnlyBigToWindow: imageAutoFit = true
+            case .fitOnlyBigToDesktop:imageAutoFit = false
             }
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
+                // pre-set zoom for resizing window
+                zoom = sizer.desktopFitScale(for: img, in: window)
+            }
+            if mode == .doNotFit {
+                zoom = 1
+            }
+
         case .zoom(let v):
-            fitToScreen = false
+            imageAutoFit = false
             zoom = v
         }
-        // 统一计算目标内容尺寸并调窗口（把所有模式分支写在一个地方）
-        let targetSize = desiredContentSize(for: img, mode: mode, window: window)
+        print(reason, currentFitMode, zoom)
+        // 统一计算目标内容尺寸并调窗口
+        let targetSize = desiredContentSize(for: img, mode: currentFitMode, window: window)
         print("targetSize:", targetSize)
-        var shouldResizeWindow = mode == .fitWindowToImage || mode == .fitOnlyBigToDesktop
-        if (mode == .fitImageToWindow || mode == .fitOnlyBigToWindow), reason != .newImage {
+        
+        var shouldResizeWindow = currentFitMode == .fitWindowToImage || currentFitMode == .fitOnlyBigToDesktop
+        
+        if (currentFitMode == .fitImageToWindow || currentFitMode == .fitOnlyBigToWindow), reason != .newImage {
             shouldResizeWindow = false
-        }/*
-        if mode == .fitWindowToImage, case .zoom = reason {
+        }
+        if currentFitMode == .fitWindowToImage, case .zoom = reason {
             shouldResizeWindow = true
-        }*/
+        }
+        if currentFitMode == .fitImageToWindow, case .zoom = reason {
+            shouldResizeWindow = false
+            print("freeze window")
+        }
         if shouldResizeWindow {
             print("resizeWindow")
-            sizer.resizeWindow(toContent: targetSize, mode: mode)
+            sizer.resizeWindow(toContent: targetSize, mode: currentFitMode)
         }
         fitImageToWindow(window: window)
     }
     func fitImageToWindow(window: NSWindow) {
         guard let img = processedImage else { return }
-        if !fitToScreen { return }
+        if !imageAutoFit { return }
         print("fit to screen")
         let naturalPt = naturalPointSize(img)
         let baseW = max(naturalPt.width, 1)
@@ -95,11 +113,16 @@ final class ViewerViewModel: ObservableObject {
 
         let scaleX = targetSize.width / baseW
         let scaleY = (targetSize.height - statusbar) / baseH
-        zoom = min(scaleX, scaleY)
+        let newScale = min(scaleX, scaleY)
+        if currentFitMode == .fitOnlyBigToWindow && newScale > 1 { zoom = 1 }
+        else {
+            zoom = min(scaleX, scaleY)
+        }
     }
     
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
     func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
+        currentFitMode = fitMode
         guard urls.indices.contains(index) else { return }
         let url = urls[index]
         currentURL = url  // used for persistent rotate
@@ -154,9 +177,9 @@ final class ViewerViewModel: ObservableObject {
             return sz
         case .fitWindowToImage:
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
-            let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
-            return sz
-            //return (scaledContentSize(for: img, scale: zoom), true, false)
+            //let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
+            //return sz
+            return scaledContentSize(for: img, scale: zoom)
 
         case .doNotFit:
             // 同上，但明确不自动调整：也给窗口一个合理大小（你也可以改为保持窗口不变）
