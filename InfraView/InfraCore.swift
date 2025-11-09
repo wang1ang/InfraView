@@ -153,9 +153,11 @@ final class WindowSizerImpl: WindowSizer {
         let maxLayout = maxAvailableContentSize(window)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
-    func resizeWindow(toContent size: CGSize, mode: FitMode) { /* 用 resizeWindowToContentSize(scrollbarAware: mode != .fitOnlyBigToDesktop) */
-        let aware = (mode != .fitOnlyBigToDesktop)
-        resizeWindowToContentSize(size, scrollbarAware: aware)
+    func resizeWindow(toContent size: CGSize, mode: FitMode) {
+        resizeWindowToContentSize(size, scrollbarAware: true)
+        // 全都传 true 没有发现问题
+        //let aware = (mode != .fitOnlyBigToDesktop)
+        //resizeWindowToContentSize(size, scrollbarAware: aware)
     }
     // 私有：搬 maxAvailableContentSize / legacyScrollbarThickness 等 Helpers
     private func currentWindow() -> NSWindow? {
@@ -326,13 +328,16 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
         targetFrame.origin.x = min(max(vf2.minX, targetFrame.origin.x), vf2.maxX - targetFrame.width)
         targetFrame.origin.y = max(vf2.minY, currentTop - targetFrame.height)
     }
+    // 删掉下面的解决zoom放大以后窗口大小来回跳。
     // ⚙️ 处理 zoomed（标准缩放）状态
+    /*
     if window.isZoomed {
         // window.zoom(nil)
         // 在 zoomed 状态下，用 delegate 指定“标准帧”= targetFrame，然后执行一次无动画 zoom
         let helper = WindowZoomHelper.shared
         let oldDelegate = window.delegate
         window.delegate = helper
+        print("pendingStandardFrame: \(targetFrame)")
         helper.pendingStandardFrame = targetFrame
 
         NSAnimationContext.runAnimationGroup { ctx in
@@ -347,6 +352,8 @@ func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Boo
     else {
         window.setFrame(targetFrame, display: true, animate: false)
     }
+    */
+    window.setFrame(targetFrame, display: true, animate: false)
 }
 
 func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, String?) {
