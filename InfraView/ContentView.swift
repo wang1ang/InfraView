@@ -14,21 +14,20 @@ import ImageIO
 
 struct ContentView: View {
     @StateObject private var store = ImageStore()
+    @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
+    @StateObject private var viewerVM: ViewerViewModel
+
     @State private var showImporter = false
     @State private var showDeleteConfirm = false
-    //@State private var scalePercent: Int = 100
-    //@State private var fitMode: FitMode = .fitWindowToImage
     @State private var toolbarWasVisible = true
     @State private var statusBarWasVisible = true
     private let zoomPresets: [CGFloat] = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
 
-    @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
     private var currentURL: URL? {
         guard let i = store.selection, store.imageURLs.indices.contains(i) else { return nil }
         return store.imageURLs[i]
     }
 
-    @StateObject private var viewerVM: ViewerViewModel
 
     init() {
         let repo = ImageRepositoryImpl()
@@ -151,7 +150,7 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Image(systemName: viewerVM.fitToScreen ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                Image(systemName: viewerVM.imageAutoFit ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
             }
 
             Menu(content: {
@@ -168,19 +167,16 @@ struct ContentView: View {
                 .keyboardShortcut(.delete, modifiers: [])
         }
     }
-
+    
     @ViewBuilder
     var zoomMenuContent: some View {
-        Button("Fit") { fitToScreenBinding().wrappedValue = true }
-        Divider()
         ForEach(zoomPresets, id: \.self) { z in
             Button("\(Int(z * 100))%") {
-                fitToScreenBinding().wrappedValue = false
                 zoomBinding().wrappedValue = z
             }
         }
     }
-
+    
     // 将本地 UI 操作转给 VM（需要 window 参与百分比计算）
     private func zoomBinding() -> Binding<CGFloat> {
         Binding(get: { viewerVM.zoom }, set: { newV in
@@ -191,16 +187,7 @@ struct ContentView: View {
             }
         })
     }
-    private func fitToScreenBinding() -> Binding<Bool> {
-        Binding(get: { viewerVM.fitToScreen }, set: { newV in
-            if let win = keyWindowOrFirstVisible() {
-                viewerVM.drive(reason: .fitToggle(newV), mode: fitMode, window: win)
-            } else {
-                viewerVM.fitToScreen = newV
-            }
-        })
-    }
-
+    
     private func next() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel + 1) % store.imageURLs.count }
     private func previous() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count }
     
@@ -233,30 +220,33 @@ struct Viewer: View {
                 let url = store.imageURLs[index]
                 
                 ZStack {
-                    Color(NSColor.windowBackgroundColor).ignoresSafeArea()
+                    //Color(NSColor.windowBackgroundColor).ignoresSafeArea()
 
                     if let err = viewerVM.loadingError {
                         Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: err)
                     } else if let img = viewerVM.processedImage {
                         ZoomableImage(
                             image: img,
-                            zoom: Binding(get: { viewerVM.zoom }, set: { v in
-                                if let win = keyWindowOrFirstVisible() {
-                                    viewerVM.drive(reason: .zoom(v), mode: fitMode, window: win)
-                                } else { viewerVM.zoom = v }
-                            }),
-                            fitToScreen: Binding(get: { viewerVM.fitToScreen }, set: { v in
-                                if let win = keyWindowOrFirstVisible() {
-                                    viewerVM.drive(reason: .fitToggle(v), mode: fitMode, window: win)
-                                } else { viewerVM.fitToScreen = v }
-                            }),
+                            zoom: Binding(
+                                get: { viewerVM.zoom },
+                                set: { v in
+                                    if let win = keyWindowOrFirstVisible() {
+                                        viewerVM.drive(reason: .zoom(v), mode: fitMode, window: win)
+                                    } else { viewerVM.zoom = v }
+                                }
+                            ),
                             fitMode: fitMode,
-                            onScaleChanged: { percent in
+                            onScaleChanged: { newZoom in
                                 print("prev vm.zoom: ", viewerVM.zoom)
-                                viewerVM.zoom = percent
-                                StatusBarStore.shared.setZoom(percent: Int(round(percent * 100)))
+                                viewerVM.zoom = newZoom
+                                StatusBarStore.shared.setZoom(percent: Int(round(newZoom * 100)))
                             },
-                            onLayoutChange: nil
+                            onLayoutChange: nil,
+                            onViewPortChange: {
+                                guard let win = keyWindowOrFirstVisible() else { return }
+                                viewerVM.fitImageToWindow(window: win)
+                                StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
+                            }
                         )
                         .id(url)
                         .navigationTitle(url.lastPathComponent)
@@ -283,7 +273,14 @@ struct Viewer: View {
                     // 修剪缓存（已在 ContentView 构造的 cache 上完成，若需要可在 VM 内暴露 trim）
                     // 这里无需额外处理
                 }
-                .onChange(of: fitMode) { _, _ in showCurrent() }
+                .onChange(of: fitMode) { _, _ in
+                    guard let win = keyWindowOrFirstVisible(),
+                          let idx = store.selection,
+                          idx < store.imageURLs.count
+                    else { return }
+                    viewerVM.drive(reason: .fitToggle, mode: fitMode, window: win)
+                    //showCurrent()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
                     showCurrent()
                 }
@@ -297,7 +294,7 @@ struct Viewer: View {
         .onChange(of: bar.isVisible) { _, _ in
             guard let win = keyWindowOrFirstVisible() else { return }
             if fitMode != .doNotFit && fitMode != .fitWindowToImage {
-                viewerVM.drive(reason: .fitToggle(true), mode: fitMode, window: win)
+                viewerVM.drive(reason: .fitToggle, mode: fitMode, window: win)
             }
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
