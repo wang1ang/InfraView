@@ -421,6 +421,7 @@ extension Notification.Name {
     static let infraDelete = Notification.Name("InfraView.Delete")
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
+    static let infraCopy = Notification.Name("InfraView.Copy")
 }
 
 // MARK: - Window Helper

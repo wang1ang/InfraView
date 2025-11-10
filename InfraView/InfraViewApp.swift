@@ -33,6 +33,12 @@ struct InfraViewApp: App {
                 Toggle("Show Status Bar", isOn: $bar.isVisible)
                 .keyboardShortcut("S", modifiers: [])
             }
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copy") {
+                    NotificationCenter.default.post(name: .infraCopy, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: .command)
+            }
         }
     }
 }
@@ -46,6 +52,10 @@ struct ContentViewWithStatusBar: View {
             if bar.isVisible {
                 StatusBar().frame(height: bar.height)
             }
+        }
+        // for debugging:
+        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { _ in
+            print("InfraView Copy fired")
         }
     }
 }
