@@ -53,10 +53,6 @@ struct ContentViewWithStatusBar: View {
                 StatusBar().frame(height: bar.height)
             }
         }
-        // for debugging:
-        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { _ in
-            print("InfraView Copy fired")
-        }
     }
 }
 

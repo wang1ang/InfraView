@@ -135,6 +135,16 @@ struct ContentView: View {
                 store.load(urls: urls)
             }
         }
+        // for debugging:
+        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { _ in
+            print("InfraView Copy fired")
+            if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
+                // copy selection
+                viewerVM.copySelectionToPasteboard()
+            } else {
+                // copy file
+            }
+        }
     }
 
     // 工具栏绑定改到 viewerVM
@@ -236,6 +246,7 @@ struct Viewer: View {
                                 }
                             ),
                             fitMode: fitMode,
+                            viewerVM: viewerVM,
                             onScaleChanged: { newZoom in
                                 print("prev vm.zoom: ", viewerVM.zoom)
                                 viewerVM.zoom = newZoom
@@ -287,6 +298,7 @@ struct Viewer: View {
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
                     showCurrent()
                 }
+
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }

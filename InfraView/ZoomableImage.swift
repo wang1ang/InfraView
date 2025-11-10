@@ -16,6 +16,8 @@ struct ZoomableImage: View {
     //@Binding var fitToScreen: Bool
     //var fitToScreen: Bool
     let fitMode: FitMode
+    
+    let viewerVM: ViewerViewModel
 
     var onScaleChanged: (CGFloat) -> Void
     var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
@@ -67,6 +69,7 @@ struct ZoomableImage: View {
                 imagePixels: imagePixels,
                 baseSize: CGSize(width: baseW, height: baseH),
                 zoom: $zoom,
+                viwerVM: viewerVM,
                 colorProvider: {x, y in
                     colorAtPixel(image: image, x: x, y: y) ?? NSColor.clear
                 }
@@ -153,5 +156,4 @@ struct ZoomableImage: View {
 
         return rep.colorAt(x: cx, y: cy)
     }
-
 }

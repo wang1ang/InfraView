@@ -12,6 +12,7 @@ final class ViewerViewModel: ObservableObject {
     @Published var imageAutoFit = false
     @Published var processedImage: NSImage?
     @Published var loadingError: String?
+    @Published var selectionRectPx: CGRect?
 
     private var baseImage: NSImage?
     private var currentURL: URL?
@@ -213,4 +214,31 @@ final class ViewerViewModel: ObservableObject {
         drive(reason: .fitToggle, mode: fitMode, window: window)
         //onScaleChanged?(Int(round(zoom * 100)))
     }
+    
+    func updateSelection(rectPx: CGRect?) {
+        selectionRectPx = rectPx
+    }
+    // ✅ 复制当前选区到剪贴板（如果有选区且有图像）
+    func copySelectionToPasteboard() {
+        guard
+            let img = processedImage,
+            let rectPx = selectionRectPx,
+            rectPx.width > 0, rectPx.height > 0
+        else { return }
+
+        // 从 NSImage 拿 CGImage
+        var proposedRect = CGRect(origin: .zero, size: img.size)
+        guard let cg = img.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+            return
+        }
+
+        guard let cropped = cg.cropping(to: rectPx) else { return }
+
+        let subImage = NSImage(cgImage: cropped, size: .zero)
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([subImage])
+    }
+
 }

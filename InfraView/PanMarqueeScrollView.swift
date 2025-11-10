@@ -15,6 +15,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     @Binding var zoom: CGFloat
     let baseSize: CGSize
     let imagePixels: CGSize
+    let viewerVM: ViewerViewModel
     var onSelectionTap: ((CGPoint) -> Void)? = nil
     var colorProvider: ((Int, Int) -> NSColor)? = nil
 
@@ -22,18 +23,22 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             imagePixels: CGSize,
             baseSize: CGSize,
             zoom: Binding<CGFloat>,
+            viwerVM: ViewerViewModel,
+            
             colorProvider: ((Int, Int) -> NSColor)? = nil,
             @ViewBuilder content: () -> Content) {
         self._zoom = zoom
         self.imagePixels = imagePixels
         self.baseSize = baseSize
         self.colorProvider = colorProvider
+        self.viewerVM = viwerVM
         self.content = content()
     }
         
     final class Coordinator {
         var scrollView: NSScrollView?
         var hostingView: NSHostingView<Content>?
+        weak var viewerVM: ViewerViewModel?
         var onSelectionTap: ((CGPoint) -> Void)?
         
         private var suppressMarquee = false
@@ -212,6 +217,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                 selectionLayer.update(snapped: snapped)
                 onFinished?(snapped.rectPx)
+                viewerVM?.updateSelection(rectPx: snapped.rectPx)
                 selectionStartInDoc = nil
                 let w = Int(snapped.rectPx.width.rounded())
                 let h = Int(snapped.rectPx.height.rounded())
@@ -256,6 +262,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     let docRectInCV = cv.convert(doc.bounds, from: doc)
                     if !docRectInCV.contains(pInCV) {
                         selectionLayer.clear()
+                        viewerVM?.updateSelection(rectPx: nil)
                     }
                 }
                 
@@ -307,6 +314,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         context.coordinator.scrollView = scrollView
         context.coordinator.hostingView = hostingView
+        context.coordinator.viewerVM = viewerVM
         context.coordinator.onSelectionTap = onSelectionTap
 
         context.coordinator.imagePixels = imagePixels
@@ -330,7 +338,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
         
         // ✅ 安装“按下就触发”的手势（不会与左键拖选框冲突）
-        context.coordinator.getColorAtPx = { x, y in self.colorProvider?(x, y) } // ← 新增
+        context.coordinator.getColorAtPx = { x, y in self.colorProvider?(x, y) }
         context.coordinator.installMouseDownMonitor()
         return scrollView
     }
