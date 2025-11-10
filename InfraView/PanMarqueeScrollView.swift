@@ -22,10 +22,12 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             imagePixels: CGSize,
             baseSize: CGSize,
             zoom: Binding<CGFloat>,
+            colorProvider: ((Int, Int) -> NSColor)? = nil,
             @ViewBuilder content: () -> Content) {
         self._zoom = zoom
         self.imagePixels = imagePixels
         self.baseSize = baseSize
+        self.colorProvider = colorProvider
         self.content = content()
     }
         
@@ -58,6 +60,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m)   }
         }
+        var lastMouseDownDocPoint: NSPoint?
 
         var getColorAtPx: ((Int, Int) -> NSColor?)?
 
@@ -170,12 +173,15 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             p = restrictP(p: p)
             switch g.state {
             case .began:
+                if let start = lastMouseDownDocPoint {
+                    p = start // use mouse down instead
+                }
                 if let path = selectionLayer.layer.path, path.contains(p) {
                     suppressMarquee = true
                     return
                 }
                 suppressMarquee = false
-                NSCursor.crosshair.push()
+                //NSCursor.crosshair.push()
                 selectionStartInDoc = p
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc, let m = makeMapper() {
@@ -212,6 +218,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let x = Int(snapped.rectPx.origin.x.rounded())
                 let y = Int(snapped.rectPx.origin.y.rounded())
                 windowTitle.showSelection(of: scrollView?.window, x: x, y: y, w: w, h: h)
+                lastMouseDownDocPoint = nil
             default:
                 break
             }
@@ -241,20 +248,21 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                       let doc = sv.documentView else { return e }
 
                 let cv   = sv.contentView
+                let pInCV = cv.convert(e.locationInWindow, from: nil)
+                guard cv.bounds.contains(pInCV) else { return e }
                 
-                // 点击在外围，消除选框
+                // 点击在选框外，消除选框
                 if selectionLayer.layer.path != nil {
                     let docRectInCV = cv.convert(doc.bounds, from: doc)
-                    let pInCV = cv.convert(e.locationInWindow, from: nil)
                     if !docRectInCV.contains(pInCV) {
                         selectionLayer.clear()
                     }
                 }
                 
-
-                let pInCV = cv.convert(e.locationInWindow, from: nil)
                 var pDoc  = cv.convert(pInCV, to: doc)
                 pDoc = self.restrictP(p: pDoc)
+                self.lastMouseDownDocPoint = pDoc
+                NSCursor.crosshair.push()
 
                 guard let m = self.makeMapper() else { return e }
                 let pPx = m.docToPx(pDoc)
