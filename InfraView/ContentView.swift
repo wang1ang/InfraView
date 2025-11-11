@@ -135,14 +135,20 @@ struct ContentView: View {
                 store.load(urls: urls)
             }
         }
-        // for debugging:
-        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { note in
             print("InfraView Copy fired")
+               
             if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
                 // copy selection
                 viewerVM.copySelectionToPasteboard()
             } else {
                 // copy file
+                guard let idx = store.selection, idx < store.imageURLs.count else { return }
+                let url = store.imageURLs[idx]
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.writeObjects([url as NSURL])
+                
             }
         }
     }
