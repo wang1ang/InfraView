@@ -13,6 +13,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var processedImage: NSImage?
     @Published var loadingError: String?
     @Published var selectionRectPx: CGRect?
+    
+    public var window: NSWindow?
 
     private var baseImage: NSImage?
     private var currentURL: URL?

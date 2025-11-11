@@ -263,6 +263,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 guard let self,
                       let sv = self.scrollView,
                       let doc = sv.documentView else { return e }
+                guard sv.window?.isKeyWindow != false else { return e }
 
                 let cv   = sv.contentView
                 let pInCV = cv.convert(e.locationInWindow, from: nil)
@@ -361,6 +362,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
         //context.coordinator.windowTitle.reset()
+        if let window = nsView.window {
+            if viewerVM.window !== window {
+                viewerVM.window = window
+            }
+        }
     }
 }
 

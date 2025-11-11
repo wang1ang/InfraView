@@ -28,7 +28,6 @@ struct ContentView: View {
         return store.imageURLs[i]
     }
 
-
     init() {
         let repo = ImageRepositoryImpl()
         let cache = ImageCache(capacity: 8)
@@ -127,7 +126,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
             let q = (note.object as? Int) ?? 0
             guard currentURL != nil else { return }
-            guard let win = keyWindowOrFirstVisible() else { return }
+            guard let win = viewerVM.window, win.isKeyWindow else { return }
             viewerVM.rotateCurrentImage(fitMode: fitMode, by: q, window: win)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
