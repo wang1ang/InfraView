@@ -135,6 +135,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { note in
+            guard viewerVM.window?.isKeyWindow == true else { return }
             print("InfraView Copy fired")
                
             if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
@@ -147,7 +148,6 @@ struct ContentView: View {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.writeObjects([url as NSURL])
-                
             }
         }
     }
