@@ -31,7 +31,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         self.viewerVM = viwerVM
         self.content = content()
     }
-        
+    
     final class Coordinator {
         var scrollView: NSScrollView?
         var hostingView: NSHostingView<Content>?
@@ -58,9 +58,25 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         var mouseDownMonitor: Any?
         var mouseUpMonitor: Any?
+        var rotateObserver: NSObjectProtocol?
+        init() {
+            rotateObserver = NotificationCenter.default.addObserver(
+                forName: .infraRotate,
+                object: nil,
+                queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.selectionLayer.clear()
+                        self.windowTitle.restoreBase(of: self.scrollView?.window)
+                        self.viewerVM?.updateSelection(rectPx: nil)
+                    }
+            }
+        }
         deinit {
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m)   }
+            if let o = rotateObserver  { NotificationCenter.default.removeObserver(o)   }
         }
         var lastMouseDownDocPoint: NSPoint?
 
@@ -341,11 +357,10 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         guard let hv = context.coordinator.hostingView else { return }
         hv.rootView = content
         //hv.layoutSubtreeIfNeeded()
-        //nsView.reflectScrolledClipView(nsView.contentView)
+        // The only place to update size in coordinator
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
-        context.coordinator.windowTitle.reset()
-        //context.coordinator.updateDocSizeForZoom()
+        //context.coordinator.windowTitle.reset()
     }
 }
 
