@@ -69,10 +69,7 @@ struct ZoomableImage: View {
                 imagePixels: imagePixels,
                 baseSize: CGSize(width: baseW, height: baseH),
                 zoom: $zoom,
-                viwerVM: viewerVM,
-                colorProvider: {x, y in
-                    colorAtPixel(image: image, x: x, y: y) ?? NSColor.clear
-                }
+                viwerVM: viewerVM
             ) {
                 content
             }
@@ -136,24 +133,5 @@ struct ZoomableImage: View {
             }
         }
         .background(Color.black)
-    }
-    private func colorAtPixel(image: NSImage, x: Int, y: Int) -> NSColor? {
-        // 把 NSImage 转成 CGImage
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
-            return nil
-        }
-
-        // 用 CGImage 创建一个 bitmap rep
-        let rep = NSBitmapImageRep(cgImage: cg)
-
-        let w = rep.pixelsWide
-        let h = rep.pixelsHigh
-        guard w > 0, h > 0 else { return nil }
-
-        let cx = min(max(0, x), w - 1)
-        let cy = min(max(0, y), h - 1)      // 如果发现上下颠倒，再改成 h - 1 - …
-
-        return rep.colorAt(x: cx, y: cy)
     }
 }

@@ -17,7 +17,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     let imagePixels: CGSize
     let viewerVM: ViewerViewModel
     var onSelectionTap: ((CGPoint) -> Void)? = nil
-    var colorProvider: ((Int, Int) -> NSColor)? = nil
 
     init(
             imagePixels: CGSize,
@@ -25,12 +24,10 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             zoom: Binding<CGFloat>,
             viwerVM: ViewerViewModel,
             
-            colorProvider: ((Int, Int) -> NSColor)? = nil,
             @ViewBuilder content: () -> Content) {
         self._zoom = zoom
         self.imagePixels = imagePixels
         self.baseSize = baseSize
-        self.colorProvider = colorProvider
         self.viewerVM = viwerVM
         self.content = content()
     }
@@ -66,8 +63,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m)   }
         }
         var lastMouseDownDocPoint: NSPoint?
-
-        var getColorAtPx: ((Int, Int) -> NSColor?)?
 
         let windowTitle = WindowTitle()
         
@@ -278,7 +273,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let x  = max(0, min(px, Int(self.imagePixels.width)  - 1))
                 let y  = max(0, min(py, Int(self.imagePixels.height) - 1))
                 
-                let color = getColorAtPx?(x, y)
+                let color = viewerVM?.colorAtPixel(x: x, y: y)
                 self.windowTitle.showColor(of: sv.window,x:x, y:y, color:color)
                 return e  // 不拦截事件，后续拖拽/双击照常工作
             }
@@ -338,7 +333,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
         
         // ✅ 安装“按下就触发”的手势（不会与左键拖选框冲突）
-        context.coordinator.getColorAtPx = { x, y in self.colorProvider?(x, y) }
         context.coordinator.installMouseDownMonitor()
         return scrollView
     }
