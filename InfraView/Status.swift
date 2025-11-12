@@ -76,10 +76,32 @@ public final class StatusBarStore: ObservableObject {
         f.dateFormat = "HH:mm:ss"       // 例：22:19:34
         return f
     }()
+    
+    // Viewer 内部加：更新状态栏固定字段
+    public func updateStatus(url: URL, image: NSImage, index: Int, total: Int) {
+        // 1) 像素尺寸与 BPP
+        let (pw, ph, repBPP) = pixelInfo(from: image)
+        
+        //let metaBPP = bitDepthFromMetadata(url: url)
+        //let bpp = metaBPP ?? repBPP
+        let bpp = repBPP
+        
+        setImageInfo(width: pw, height: ph, bpp: bpp)
+
+        // 2) 页码（注意 UI 从 1 开始）
+        setPage(index: index + 1, total: total)
+
+        // 3) 文件时间（创建时间优先，其次修改时间）
+        if let d = fileTimestamp(url) {
+            setTimestamp(d)
+        } else {
+            setTimestamp(nil)
+        }
+    }
 }
 
 public struct StatusBar: View {
-    @ObservedObject private var store = StatusBarStore.shared
+    @EnvironmentObject private var store: StatusBarStore
 
     public init() {}
     public var body: some View {
@@ -98,27 +120,6 @@ public struct StatusBar: View {
     }
 }
 
-// Viewer 内部加：更新状态栏固定字段
-public func updateStatus(url: URL, image: NSImage, index: Int, total: Int) {
-    // 1) 像素尺寸与 BPP
-    let (pw, ph, repBPP) = pixelInfo(from: image)
-    
-    //let metaBPP = bitDepthFromMetadata(url: url)
-    //let bpp = metaBPP ?? repBPP
-    let bpp = repBPP
-    
-    StatusBarStore.shared.setImageInfo(width: pw, height: ph, bpp: bpp)
-
-    // 2) 页码（注意 UI 从 1 开始）
-    StatusBarStore.shared.setPage(index: index + 1, total: total)
-
-    // 3) 文件时间（创建时间优先，其次修改时间）
-    if let d = fileTimestamp(url) {
-        StatusBarStore.shared.setTimestamp(d)
-    } else {
-        StatusBarStore.shared.setTimestamp(nil)
-    }
-}
 
 // 提取像素宽高与 BPP
 public func pixelInfo(from image: NSImage) -> (Int?, Int?, Int?) {

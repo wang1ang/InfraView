@@ -18,6 +18,7 @@ struct InfraViewApp: App {
     var body: some Scene {
         WindowGroup {
             ContentViewWithStatusBar()
+                .environmentObject(bar)
         }
         //.windowStyle(.titleBar)
         .commands {
@@ -44,13 +45,16 @@ struct InfraViewApp: App {
 }
 
 struct ContentViewWithStatusBar: View {
-    @ObservedObject private var bar = StatusBarStore.shared
+    @ObservedObject private var bar = StatusBarStore()
 
     var body: some View {
         VStack(spacing: 0) {
             ContentView()
+                .environmentObject(bar)
             if bar.isVisible {
-                StatusBar().frame(height: bar.height)
+                StatusBar()
+                    .environmentObject(bar)
+                    .frame(height: bar.height)
             }
         }
     }

@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var store = ImageStore()
     @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
     @StateObject private var viewerVM: ViewerViewModel
+    @EnvironmentObject private var bar: StatusBarStore
 
     @State private var showImporter = false
     @State private var showDeleteConfirm = false
@@ -42,7 +43,7 @@ struct ContentView: View {
             Viewer(store: store,
                    viewerVM: viewerVM,
                    fitMode: fitMode
-            )
+            ).environmentObject(bar)
         }
         .background(
             InstallDeleteResponder {
@@ -63,28 +64,25 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
-            if let w = NSApp.keyWindow {
-                toolbarWasVisible = w.toolbar?.isVisible ?? true
-                w.toolbar?.isVisible = false
-                w.titleVisibility = .hidden
-                w.titlebarAppearsTransparent = true
-                if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .none }
-                
-                statusBarWasVisible = StatusBarStore.shared.isVisible
-                StatusBarStore.shared.isVisible = false
-                
-                NSCursor.setHiddenUntilMouseMoves(true)
-            }
+            guard let win = viewerVM.window, win.isKeyWindow else { return }
+            toolbarWasVisible = win.toolbar?.isVisible ?? true
+            win.toolbar?.isVisible = false
+            win.titleVisibility = .hidden
+            win.titlebarAppearsTransparent = true
+            if #available(macOS 11.0, *) { win.titlebarSeparatorStyle = .none }
+            
+            statusBarWasVisible = bar.isVisible
+            bar.isVisible = false
+            
+            NSCursor.setHiddenUntilMouseMoves(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-            if let w = NSApp.keyWindow {
-                w.toolbar?.isVisible = toolbarWasVisible
-                w.titleVisibility = .visible
-                w.titlebarAppearsTransparent = false
-                if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .automatic }
-
-                StatusBarStore.shared.isVisible = statusBarWasVisible
-            }
+            guard let w = viewerVM.window, w.isKeyWindow else { return }
+            w.toolbar?.isVisible = toolbarWasVisible
+            w.titleVisibility = .visible
+            w.titlebarAppearsTransparent = false
+            if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .automatic }
+            bar.isVisible = statusBarWasVisible
         }
         .onDrop(of: [UTType.fileURL, .image], isTargeted: nil) { providers in
             let canHandle = providers.contains {
@@ -103,7 +101,7 @@ struct ContentView: View {
                 guard !urls.isEmpty else { return }
                 await MainActor.run {
                     NSApp.activate(ignoringOtherApps: true)
-                    if let win = keyWindowOrFirstVisible() {
+                    if let win = currentWindow() {
                         win.makeKeyAndOrderFront(nil)
                     }
                     store.load(urls: urls)
@@ -171,7 +169,7 @@ struct ContentView: View {
             Menu(content: {
                 Slider(value: zoomBinding(), in: 0.25...10)
                 Divider(); zoomMenuContent
-            }, label: { Text("\(String(StatusBarStore.shared.zoomPercent ?? 100))%") })
+            }, label: { Text("\(String(bar.zoomPercent ?? 100))%") })
                 //Int(round(viewerVM.zoom*100))
 
             Button { previous() } label: { Image(systemName: "chevron.left") }
@@ -195,7 +193,7 @@ struct ContentView: View {
     // 将本地 UI 操作转给 VM（需要 window 参与百分比计算）
     private func zoomBinding() -> Binding<CGFloat> {
         Binding(get: { viewerVM.zoom }, set: { newV in
-            if let win = keyWindowOrFirstVisible() {
+            if let win = currentWindow() {
                 viewerVM.drive(reason: .zoom(newV), mode: fitMode, window: win)
             } else {
                 viewerVM.zoom = newV
@@ -217,6 +215,10 @@ struct ContentView: View {
             store.selection = store.imageURLs.isEmpty ? nil : min(idx, store.imageURLs.count - 1)
         } catch { print("Delete failed:", error) }
     }
+    
+    private func currentWindow() -> NSWindow? {
+        viewerVM.window ?? keyWindowOrFirstVisible()
+    }
 }
 
 // MARK: - Viewer (thin wrapper)
@@ -227,7 +229,7 @@ struct Viewer: View {
     @ObservedObject var viewerVM: ViewerViewModel
     let fitMode: FitMode
     
-    @ObservedObject private var bar = StatusBarStore.shared
+    @EnvironmentObject private var bar: StatusBarStore
 
     var body: some View {
         Group {
@@ -245,30 +247,31 @@ struct Viewer: View {
                             zoom: Binding(
                                 get: { viewerVM.zoom },
                                 set: { v in
-                                    if let win = keyWindowOrFirstVisible() {
+                                    if let win = currentWindow() {
                                         viewerVM.drive(reason: .zoom(v), mode: fitMode, window: win)
                                     } else { viewerVM.zoom = v }
                                 }
                             ),
                             fitMode: fitMode,
                             viewerVM: viewerVM,
+                            bar: bar,
                             onScaleChanged: { newZoom in
                                 print("prev vm.zoom: ", viewerVM.zoom)
                                 viewerVM.zoom = newZoom
-                                StatusBarStore.shared.setZoom(percent: Int(round(newZoom * 100)))
+                                bar.setZoom(percent: Int(round(newZoom * 100)))
                             },
                             onLayoutChange: nil,
                             onViewPortChange: {
-                                guard let win = keyWindowOrFirstVisible() else { return }
+                                guard let win = currentWindow() else { return }
                                 viewerVM.fitImageToWindow(window: win)
-                                StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
+                                bar.setZoom(percent: Int(round(viewerVM.zoom * 100)))
                             }
                         )
                         .id(url)
                         .navigationTitle(url.lastPathComponent)
                         .onAppear() {
-                            updateStatus(url: url, image: img, index: index, total: store.imageURLs.count)
-                            StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
+                            bar.updateStatus(url: url, image: img, index: index, total: store.imageURLs.count)
+                            bar.setZoom(percent: Int(round(viewerVM.zoom * 100)))
                         }
                     } else {
                         VStack(spacing: 12) {
@@ -279,8 +282,8 @@ struct Viewer: View {
                 }
                 .onChange(of: viewerVM.processedImage) { _, newImg in
                     if let newImg {
-                        updateStatus(url: url, image: newImg, index: index, total: store.imageURLs.count)
-                        StatusBarStore.shared.setZoom(percent: Int(round(viewerVM.zoom * 100)))
+                        bar.updateStatus(url: url, image: newImg, index: index, total: store.imageURLs.count)
+                        bar.setZoom(percent: Int(round(viewerVM.zoom * 100)))
                     }
                 }
                 .onAppear(perform: showCurrent)
@@ -290,7 +293,7 @@ struct Viewer: View {
                     // 这里无需额外处理
                 }
                 .onChange(of: fitMode) { _, _ in
-                    guard let win = keyWindowOrFirstVisible(),
+                    guard let win = currentWindow(),
                           let idx = store.selection,
                           idx < store.imageURLs.count
                     else { return }
@@ -309,22 +312,25 @@ struct Viewer: View {
             }
         }
         .onChange(of: bar.isVisible) { _, _ in
-            guard let win = keyWindowOrFirstVisible() else { return }
+            guard let win = currentWindow() else { return }
             if fitMode != .doNotFit && fitMode != .fitWindowToImage {
                 viewerVM.drive(reason: .fitToggle, mode: fitMode, window: win)
             }
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
-            StatusBarStore.shared.setZoom(percent: Int(round(newZoom * 100)))
+            bar.setZoom(percent: Int(round(newZoom * 100)))
         }
     }
 
     private func showCurrent() {
         guard let idx = store.selection,
               idx < store.imageURLs.count,
-              let win = keyWindowOrFirstVisible()
+              let win = currentWindow()
         else { return }
         viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode, window: win)
+    }
+    private func currentWindow() -> NSWindow? {
+        viewerVM.window ?? keyWindowOrFirstVisible()
     }
 }
 

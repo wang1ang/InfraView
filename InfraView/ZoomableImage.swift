@@ -18,6 +18,9 @@ struct ZoomableImage: View {
     let fitMode: FitMode
     
     let viewerVM: ViewerViewModel
+    
+    // for future use
+    let bar: StatusBarStore
 
     var onScaleChanged: (CGFloat) -> Void
     var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)
@@ -127,6 +130,7 @@ struct ZoomableImage: View {
             )
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
+                // TODO: change to current window
                 if let win = keyWindowOrFirstVisible() {
                     win.toggleFullScreen(nil)
                 }
