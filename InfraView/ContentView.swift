@@ -445,6 +445,7 @@ extension Notification.Name {
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
     static let infraCopy = Notification.Name("InfraView.Copy")
+    static let infraToggleStatusBar = Notification.Name("InfraView.ToggleStatusBar")
 }
 
 // MARK: - Window Helper

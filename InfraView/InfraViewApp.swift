@@ -10,7 +10,6 @@ import SwiftUI
 @main
 struct InfraViewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var bar = StatusBarStore.shared
 
     init() {
         bindDeleteToCommandBackspace()
@@ -18,7 +17,6 @@ struct InfraViewApp: App {
     var body: some Scene {
         WindowGroup {
             ContentViewWithStatusBar()
-                .environmentObject(bar)
         }
         //.windowStyle(.titleBar)
         .commands {
@@ -31,7 +29,10 @@ struct InfraViewApp: App {
                     NotificationCenter.default.post(name: .infraRotate, object: 1)
                 }
                 .keyboardShortcut("R", modifiers: [])
-                Toggle("Show Status Bar", isOn: $bar.isVisible)
+
+                Button("Toggle Status Bar") {
+                    NotificationCenter.default.post(name: .infraToggleStatusBar, object: nil)
+                }
                 .keyboardShortcut("S", modifiers: [])
             }
             CommandGroup(replacing: .pasteboard) {
@@ -56,6 +57,9 @@ struct ContentViewWithStatusBar: View {
                     .environmentObject(bar)
                     .frame(height: bar.height)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .infraToggleStatusBar)) { _ in
+            bar.isVisible.toggle()
         }
     }
 }
