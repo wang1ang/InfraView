@@ -25,6 +25,8 @@ final class ViewerViewModel: ObservableObject {
     private let cache: ImageCache // 内存缓存
     private let preloader: ImagePreloader // 预加载前后图片
     private let sizer: WindowSizer // 计算窗口尺寸和fit缩放比
+    
+    let bar = StatusBarStore()
 
     init(repo: ImageRepository, cache: ImageCache, preloader: ImagePreloader, sizer: WindowSizer) {
         self.repo = repo; self.cache = cache; self.preloader = preloader; self.sizer = sizer
@@ -35,13 +37,15 @@ final class ViewerViewModel: ObservableObject {
     // 1. 要不要fit
     // 2. 决定窗口尺寸
     enum Reason: Equatable { case newImage, fitToggle, zoom(CGFloat) }
-    func drive(reason: Reason, mode: FitMode, window: NSWindow) {
+    func drive(reason: Reason, mode: FitMode) {
+        guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         if reason == .newImage || reason == .fitToggle {
             currentFitMode = mode
         }
         // 没有 processedImage 直接返回
         guard let img = processedImage else { return }
 
+        print(reason, mode)
         switch reason {
         case .newImage:
             // restore zoom
@@ -80,7 +84,7 @@ final class ViewerViewModel: ObservableObject {
             imageAutoFit = false
             zoom = v
         }
-        print(reason, currentFitMode, zoom)
+        print("drive:", reason, currentFitMode, zoom, imageAutoFit)
         // 统一计算目标内容尺寸并调窗口
         let targetSize = desiredContentSize(for: img, mode: currentFitMode, window: window)
         print("targetSize:", targetSize)
@@ -101,9 +105,10 @@ final class ViewerViewModel: ObservableObject {
             print("resizeWindow")
             sizer.resizeWindow(toContent: targetSize, mode: currentFitMode)
         }
-        fitImageToWindow(window: window)
+        fitImageToWindow()
     }
-    func fitImageToWindow(window: NSWindow) {
+    func fitImageToWindow() {
+        guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         guard let img = processedImage else { return }
         if !imageAutoFit { return }
         print("fit to screen")
@@ -124,7 +129,8 @@ final class ViewerViewModel: ObservableObject {
     }
     
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
-    func show(index: Int, in urls: [URL], fitMode: FitMode, window: NSWindow) {
+    func show(index: Int, in urls: [URL], fitMode: FitMode) {
+        print("show")
         currentFitMode = fitMode
         guard urls.indices.contains(index) else { return }
         let url = urls[index]
@@ -137,7 +143,7 @@ final class ViewerViewModel: ObservableObject {
             baseImage = cached
             let q = RotationStore.shared.get(for: url)
             processedImage = (q == 0) ? cached : rotate(cached, quarterTurns: q)
-            drive(reason: .newImage, mode: fitMode, window: window)
+            drive(reason: .newImage, mode: fitMode)
         } else {
             // 2) 没缓存：异步加载，回主线程后再应用旋转并 drive
             Task.detached(priority: .userInitiated) { [weak self] in
@@ -151,7 +157,7 @@ final class ViewerViewModel: ObservableObject {
                         self.cache.set(url, img)
                         let q = RotationStore.shared.get(for: url)
                         self.processedImage = (q == 0) ? img : rotate(img, quarterTurns: q)
-                        self.drive(reason: .newImage, mode: fitMode, window: window)
+                        self.drive(reason: .newImage, mode: fitMode)
                     } else {
                         self.loadingError = "Unsupported image format."
                     }
@@ -213,7 +219,7 @@ final class ViewerViewModel: ObservableObject {
         
         processedImage = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
         
-        drive(reason: .fitToggle, mode: fitMode, window: window)
+        drive(reason: .fitToggle, mode: fitMode)
         //onScaleChanged?(Int(round(zoom * 100)))
     }
     

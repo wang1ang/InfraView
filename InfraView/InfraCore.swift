@@ -87,6 +87,7 @@ protocol WindowSizer {
 
 @MainActor
 final class WindowSizerImpl: WindowSizer {
+
     func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize { // 按当前窗口计算可视面积
 
         let base = naturalPointSize(image)
@@ -255,6 +256,7 @@ func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
 
 @MainActor
 func resizeWindowToContentSize(_ desiredContentSize: CGSize, scrollbarAware: Bool = true) {
+    print ("resizeWindowToContentSize")
     // 获取目标窗口
     guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
     // 先确保窗口不是 zoomed / fullScreen

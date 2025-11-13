@@ -14,8 +14,12 @@ import ImageIO
 
 struct ContentView: View {
     @StateObject private var store = ImageStore()
-    @AppStorage("InfraView.fitMode") private var fitMode: FitMode = .fitWindowToImage
-    @StateObject private var viewerVM: ViewerViewModel
+    
+    @AppStorage("InfraView.fitMode") private var lastFitMode: FitMode = .fitWindowToImage
+    @State private var fitMode: FitMode = .fitWindowToImage
+    @State private var fitModeInitialized = false
+    
+    @ObservedObject var viewerVM: ViewerViewModel
     @EnvironmentObject private var bar: StatusBarStore
 
     @State private var showImporter = false
@@ -29,21 +33,13 @@ struct ContentView: View {
         return store.imageURLs[i]
     }
 
-    init() {
-        let repo = ImageRepositoryImpl()
-        let cache = ImageCache(capacity: 8)
-        let preloader = ImagePreloader(repo: repo, cache: cache)
-        let sizer = WindowSizerImpl()
-        _viewerVM = StateObject(wrappedValue: ViewerViewModel(repo: repo, cache: cache, preloader: preloader, sizer: sizer))
-    }
-
     var body: some View {
         GeometryReader { geo in
             //let size = geo.size
             Viewer(store: store,
                    viewerVM: viewerVM,
                    fitMode: fitMode
-            ).environmentObject(bar)
+            )
         }
         .background(
             InstallDeleteResponder {
@@ -61,6 +57,15 @@ struct ContentView: View {
         ) { result in
             if case .success(let urls) = result { store.load(urls: urls) }
         }
+        .onAppear() {
+            if !fitModeInitialized {
+                fitMode = lastFitMode
+                fitModeInitialized = true
+            }
+        }
+        .onChange(of: fitMode) { _, newValue in
+            lastFitMode = newValue
+        }
         .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
@@ -71,8 +76,8 @@ struct ContentView: View {
             win.titlebarAppearsTransparent = true
             if #available(macOS 11.0, *) { win.titlebarSeparatorStyle = .none }
             
-            statusBarWasVisible = bar.isVisible
-            bar.isVisible = false
+            statusBarWasVisible = StatusBarStore.shared.isVisible
+            StatusBarStore.shared.isVisible = false
             
             NSCursor.setHiddenUntilMouseMoves(true)
         }
@@ -82,7 +87,7 @@ struct ContentView: View {
             w.titleVisibility = .visible
             w.titlebarAppearsTransparent = false
             if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .automatic }
-            bar.isVisible = statusBarWasVisible
+            StatusBarStore.shared.isVisible = statusBarWasVisible
         }
         .onDrop(of: [UTType.fileURL, .image], isTargeted: nil) { providers in
             let canHandle = providers.contains {
@@ -193,11 +198,7 @@ struct ContentView: View {
     // 将本地 UI 操作转给 VM（需要 window 参与百分比计算）
     private func zoomBinding() -> Binding<CGFloat> {
         Binding(get: { viewerVM.zoom }, set: { newV in
-            if let win = currentWindow() {
-                viewerVM.drive(reason: .zoom(newV), mode: fitMode, window: win)
-            } else {
-                viewerVM.zoom = newV
-            }
+                viewerVM.drive(reason: .zoom(newV), mode: fitMode)
         })
     }
     
@@ -227,9 +228,9 @@ struct ContentView: View {
 struct Viewer: View {
     @ObservedObject var store: ImageStore
     @ObservedObject var viewerVM: ViewerViewModel
-    let fitMode: FitMode
-    
     @EnvironmentObject private var bar: StatusBarStore
+    @ObservedObject private var sharedBar = StatusBarStore.shared
+    let fitMode: FitMode
 
     var body: some View {
         Group {
@@ -247,14 +248,11 @@ struct Viewer: View {
                             zoom: Binding(
                                 get: { viewerVM.zoom },
                                 set: { v in
-                                    if let win = currentWindow() {
-                                        viewerVM.drive(reason: .zoom(v), mode: fitMode, window: win)
-                                    } else { viewerVM.zoom = v }
+                                        viewerVM.drive(reason: .zoom(v), mode: fitMode)
                                 }
                             ),
                             fitMode: fitMode,
                             viewerVM: viewerVM,
-                            bar: bar,
                             onScaleChanged: { newZoom in
                                 print("prev vm.zoom: ", viewerVM.zoom)
                                 viewerVM.zoom = newZoom
@@ -262,8 +260,8 @@ struct Viewer: View {
                             },
                             onLayoutChange: nil,
                             onViewPortChange: {
-                                guard let win = currentWindow() else { return }
-                                viewerVM.fitImageToWindow(window: win)
+                                // TODO: check this logic
+                                viewerVM.fitImageToWindow()
                                 bar.setZoom(percent: Int(round(viewerVM.zoom * 100)))
                             }
                         )
@@ -293,11 +291,10 @@ struct Viewer: View {
                     // 这里无需额外处理
                 }
                 .onChange(of: fitMode) { _, _ in
-                    guard let win = currentWindow(),
-                          let idx = store.selection,
+                    guard let idx = store.selection,
                           idx < store.imageURLs.count
                     else { return }
-                    viewerVM.drive(reason: .fitToggle, mode: fitMode, window: win)
+                    viewerVM.drive(reason: .fitToggle, mode: fitMode)
                     //showCurrent()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
@@ -311,10 +308,9 @@ struct Viewer: View {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }
         }
-        .onChange(of: bar.isVisible) { _, _ in
-            guard let win = currentWindow() else { return }
+        .onChange(of: sharedBar.isVisible) { _, _ in
             if fitMode != .doNotFit && fitMode != .fitWindowToImage {
-                viewerVM.drive(reason: .fitToggle, mode: fitMode, window: win)
+                viewerVM.drive(reason: .fitToggle, mode: fitMode)
             }
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
@@ -323,11 +319,11 @@ struct Viewer: View {
     }
 
     private func showCurrent() {
+        print("showCurrent")
         guard let idx = store.selection,
-              idx < store.imageURLs.count,
-              let win = currentWindow()
+              idx < store.imageURLs.count
         else { return }
-        viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode, window: win)
+        viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode)
     }
     private func currentWindow() -> NSWindow? {
         viewerVM.window ?? keyWindowOrFirstVisible()

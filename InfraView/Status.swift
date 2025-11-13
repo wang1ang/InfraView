@@ -9,7 +9,7 @@ import CoreGraphics
 public final class StatusBarStore: ObservableObject {
     public static let shared = StatusBarStore()
     
-    // 字段
+    // UI监听的ObservableObject字段
     @Published public var pixelWidth: Int?
     @Published public var pixelHeight: Int?
     @Published public var bitsPerPixel: Int?

@@ -18,9 +18,6 @@ struct ZoomableImage: View {
     let fitMode: FitMode
     
     let viewerVM: ViewerViewModel
-    
-    // for future use
-    let bar: StatusBarStore
 
     var onScaleChanged: (CGFloat) -> Void
     var onLayoutChange: ((Bool, CGSize) -> Void)? = nil // (needScroll, contentSize)

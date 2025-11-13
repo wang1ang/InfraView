@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct InfraViewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var bar = StatusBarStore.shared
 
     init() {
         bindDeleteToCommandBackspace()
@@ -25,14 +26,14 @@ struct InfraViewApp: App {
                     NotificationCenter.default.post(name: .infraRotate, object: -1)
                 }
                 .keyboardShortcut("L", modifiers: [])
+
                 Button("Rotate Right") {
                     NotificationCenter.default.post(name: .infraRotate, object: 1)
                 }
+
                 .keyboardShortcut("R", modifiers: [])
 
-                Button("Toggle Status Bar") {
-                    NotificationCenter.default.post(name: .infraToggleStatusBar, object: nil)
-                }
+                Toggle("Show Status Bar", isOn: $bar.isVisible)
                 .keyboardShortcut("S", modifiers: [])
             }
             CommandGroup(replacing: .pasteboard) {
@@ -46,20 +47,29 @@ struct InfraViewApp: App {
 }
 
 struct ContentViewWithStatusBar: View {
-    @ObservedObject private var bar = StatusBarStore()
+    @StateObject private var viewerVM: ViewerViewModel
+    @ObservedObject private var sharedBar = StatusBarStore.shared
+
+    init() {
+        let repo = ImageRepositoryImpl()
+        let cache = ImageCache(capacity: 8)
+        let preloader = ImagePreloader(repo: repo, cache: cache)
+        let sizer = WindowSizerImpl()
+
+        let vm = ViewerViewModel(repo: repo, cache: cache, preloader: preloader, sizer: sizer)
+
+        _viewerVM = StateObject(wrappedValue: vm)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            ContentView()
-                .environmentObject(bar)
-            if bar.isVisible {
+            ContentView(viewerVM: viewerVM)
+                .environmentObject(viewerVM.bar) // need observe
+            if sharedBar.isVisible {
                 StatusBar()
-                    .environmentObject(bar)
-                    .frame(height: bar.height)
+                    .environmentObject(viewerVM.bar)
+                    .frame(height: sharedBar.height)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraToggleStatusBar)) { _ in
-            bar.isVisible.toggle()
         }
     }
 }

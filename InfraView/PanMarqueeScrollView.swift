@@ -308,6 +308,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        print("makeNSView")
         // 外层滚动视图
         let scrollView = NSScrollView()
         let clipView = CenteringClipView()
@@ -355,6 +356,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        print("updateNSView")
         guard let hv = context.coordinator.hostingView else { return }
         hv.rootView = content
         //hv.layoutSubtreeIfNeeded()
@@ -362,6 +364,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
         //context.coordinator.windowTitle.reset()
+        //NOTE: 第一次打开图片，NSScrollView还没加入窗口层级，拿不到window
         if let window = nsView.window {
             if viewerVM.window !== window {
                 viewerVM.window = window
