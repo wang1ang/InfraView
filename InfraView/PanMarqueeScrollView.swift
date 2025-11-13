@@ -356,7 +356,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        print("updateNSView")
+        //print("updateNSView")
         guard let hv = context.coordinator.hostingView else { return }
         hv.rootView = content
         //hv.layoutSubtreeIfNeeded()

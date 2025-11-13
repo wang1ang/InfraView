@@ -100,7 +100,6 @@ final class ViewerViewModel: ObservableObject {
             print("freeze window")
         }
         if shouldResizeWindow {
-            print("resizeWindow")
             sizer.resizeWindow(toContent: targetSize, mode: currentFitMode)
         }
         fitImageToWindow()

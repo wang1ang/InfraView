@@ -317,7 +317,6 @@ struct Viewer: View {
     }
 
     private func showCurrent() {
-        print("showCurrent")
         guard let idx = store.selection,
               idx < store.imageURLs.count
         else { return }
