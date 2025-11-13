@@ -309,9 +309,7 @@ struct Viewer: View {
             }
         }
         .onChange(of: sharedBar.isVisible) { _, _ in
-            if fitMode != .doNotFit && fitMode != .fitWindowToImage {
-                viewerVM.drive(reason: .fitToggle, mode: fitMode)
-            }
+            viewerVM.drive(reason: .layout, mode: fitMode)
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
             bar.setZoom(percent: Int(round(newZoom * 100)))

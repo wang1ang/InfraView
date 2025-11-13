@@ -36,7 +36,16 @@ final class ViewerViewModel: ObservableObject {
     // 给出两个东西：
     // 1. 要不要fit
     // 2. 决定窗口尺寸
-    enum Reason: Equatable { case newImage, fitToggle, zoom(CGFloat) }
+    enum Reason: Equatable { case newImage, fitToggle, layout, zoom(CGFloat) }
+    func defaultAutoFit(fitMode: FitMode) -> Bool {
+        switch currentFitMode {
+        case .doNotFit:            return false
+        case .fitWindowToImage:    return false
+        case .fitImageToWindow:    return true
+        case .fitOnlyBigToWindow:  return true
+        case .fitOnlyBigToDesktop: return false
+        }
+    }
     func drive(reason: Reason, mode: FitMode) {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         if reason == .newImage || reason == .fitToggle {
@@ -45,7 +54,7 @@ final class ViewerViewModel: ObservableObject {
         // 没有 processedImage 直接返回
         guard let img = processedImage else { return }
 
-        print(reason, mode)
+        imageAutoFit = defaultAutoFit(fitMode: currentFitMode)
         switch reason {
         case .newImage:
             // restore zoom
@@ -54,35 +63,24 @@ final class ViewerViewModel: ObservableObject {
                 // pre-set zoom for resizing window
                 zoom = sizer.desktopFitScale(for: img, in: window)
             }
-            
-            // 初始状态
-            switch currentFitMode {
-            case .doNotFit:           imageAutoFit = false
-            case .fitWindowToImage:   imageAutoFit = false
-            case .fitImageToWindow:   imageAutoFit = true
-            case .fitOnlyBigToWindow: imageAutoFit = true
-            case .fitOnlyBigToDesktop:imageAutoFit = false
-            }
-        // TODO: remove fitToggle
         case .fitToggle:
-            switch currentFitMode {
-            case .doNotFit:           imageAutoFit = false
-            case .fitWindowToImage:   imageAutoFit = false
-            case .fitImageToWindow:   imageAutoFit = true
-            case .fitOnlyBigToWindow: imageAutoFit = true
-            case .fitOnlyBigToDesktop:imageAutoFit = false
-            }
             if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
                 // pre-set zoom for resizing window
                 zoom = sizer.desktopFitScale(for: img, in: window)
             }
-            if mode == .doNotFit {
+            if mode == .doNotFit || mode == .fitWindowToImage {
                 zoom = 1
             }
-
         case .zoom(let v):
-            imageAutoFit = false
             zoom = v
+            imageAutoFit = false
+        case .layout:
+            // layout change (e.g. status bar):
+            //   keep the zoom
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
+                zoom = sizer.desktopFitScale(for: img, in: window)
+            }
+            break
         }
         print("drive:", reason, currentFitMode, zoom, imageAutoFit)
         // 统一计算目标内容尺寸并调窗口
@@ -268,5 +266,4 @@ final class ViewerViewModel: ObservableObject {
 
         return rep.colorAt(x: cx, y: cy)
     }
-
 }
