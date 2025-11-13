@@ -58,7 +58,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         var mouseDownMonitor: Any?
         var mouseUpMonitor: Any?
+        var mouseMoveMonitor: Any?
         var rotateObserver: NSObjectProtocol?
+        
+        var resizingEdge: Edge?
+        
         init() {
             rotateObserver = NotificationCenter.default.addObserver(
                 forName: .infraRotate,
@@ -75,8 +79,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
         deinit {
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
-            if let m = mouseUpMonitor   { NSEvent.removeMonitor(m)   }
-            if let o = rotateObserver  { NotificationCenter.default.removeObserver(o)   }
+            if let m = mouseUpMonitor   { NSEvent.removeMonitor(m) }
+            if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
+            if let o = rotateObserver  { NotificationCenter.default.removeObserver(o) }
         }
         var lastMouseDownDocPoint: NSPoint?
 
@@ -192,6 +197,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 if let start = lastMouseDownDocPoint {
                     p = start // use mouse down instead
                 }
+                
+                // [EDGE-RESIZE] 若已有选框，先做边缘命中检测；命中则进入“沿边缩放”模式
+                if selectionLayer.currentSelectionPx != nil,
+                   let edge = hitTestEdge(pDoc: p) {
+                    beganResizingEdge(edge, on: doc)
+                    return
+                }
+                
                 if let path = selectionLayer.layer.path, path.contains(p) {
                     suppressMarquee = true
                     return
@@ -206,6 +219,12 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     onChanged?(snapped.rectPx)
                 }
             case .changed:
+                // [EDGE-RESIZE] 处于沿边缩放
+                if let edge = resizingEdge {
+                    changedResizingEdge(edge, by: p)
+                    return
+                }
+                
                 guard !suppressMarquee, let s = selectionStartInDoc, let m = makeMapper() else { return }
                 let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
                 
@@ -218,6 +237,10 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 let y = Int(snapped.rectPx.origin.y.rounded())
                 windowTitle.showDraggingRect(of: scrollView?.window, x: x, y: y, w: w, h: h)
             case .ended, .cancelled:
+                // [EDGE-RESIZE] 完成沿边缩放
+                if resizingEdge != nil {
+                    endedResizingEdge()
+                }
                 if suppressMarquee {
                     onSelectionTap?(p)
                     suppressMarquee = false
@@ -241,7 +264,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
 
-        private func ensureSelectionLayer(on doc: NSView) {
+        func ensureSelectionLayer(on doc: NSView) {
             selectionLayer.attachIfNeeded(to: doc)
             if cachedDoubleClickRecognizer == nil {
                 let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
@@ -282,6 +305,23 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 pDoc = self.restrictP(p: pDoc)
                 self.lastMouseDownDocPoint = pDoc
                 NSCursor.crosshair.push()
+
+                // ✅ 新增：如果是点在“选框边缘”，说明要进入缩放；此时不要显示取色标题
+                if self.selectionLayer.currentSelectionPx != nil,
+                   self.hitTestEdge(pDoc: pDoc) != nil {
+                    return e
+                }
+                // 如果点在选框内部、准备移动/缩放，你也可以选择不取色
+                if let rPx = selectionLayer.currentSelectionPx,
+                   let m = makeMapper() {
+                    let pPx = m.docToPx(pDoc)
+                    if rPx.contains(pPx) {
+                        // TODO: move marquee
+                        return e
+                    }   // 在选框内部：不取色
+                }
+
+
 
                 guard let m = self.makeMapper() else { return e }
                 let pPx = m.docToPx(pDoc)
@@ -352,6 +392,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         
         // ✅ 安装“按下就触发”的手势（不会与左键拖选框冲突）
         context.coordinator.installMouseDownMonitor()
+        context.coordinator.installMouseMoveMonitor()
         return scrollView
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
