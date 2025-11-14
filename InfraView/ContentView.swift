@@ -155,6 +155,21 @@ struct ContentView: View {
                 pb.writeObjects([url as NSURL])
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .infraCut)) { _ in
+            guard viewerVM.window?.isKeyWindow == true else { return }
+            print("InfraView Cut fired")
+
+            if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
+                // 1. 先复制选区
+                viewerVM.copySelectionToPasteboard()
+                // 2. 再擦除选区
+                viewerVM.eraseSelection()
+            } else {
+                // 暂时：没有选区时什么都不做（保持安全）
+                // 你以后也可以在这里调用 requestDelete() 变成“剪切整个文件”
+                return
+            }
+        }
     }
 
     // 工具栏绑定改到 viewerVM
