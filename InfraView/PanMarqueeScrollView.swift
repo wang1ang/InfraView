@@ -234,7 +234,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 }
                 NSCursor.pop()
                 guard let s = selectionStartInDoc, let m = makeMapper() else { return }
-                let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
+                let snapped = m.snapDocRect(startDoc: s, endDoc: p)
                 selectionLayer.update(snapped: snapped)
                 onFinished?(snapped.rectPx)
                 viewerVM?.updateSelection(rectPx: snapped.rectPx)
@@ -459,18 +459,9 @@ struct PixelMapper {
         return .init(x: min(max(0, p.x), w),
                      y: min(max(0, p.y), h))
     }
-    /// 夹紧到像素边界（基于 imagePixels）
-    func clampPxRect(_ r: CGRect) -> CGRect {
-        var r = r
-        r.origin.x = max(0, min(r.origin.x, imagePixels.width))
-        r.origin.y = max(0, min(r.origin.y, imagePixels.height))
-        r.size.width  = max(0, min(r.maxX, imagePixels.width)  - r.origin.x)
-        r.size.height = max(0, min(r.maxY, imagePixels.height) - r.origin.y)
-        return r
-    }
-    
+
     /// 把矩形贴齐到像素网格（floor）并夹紧到边界
-    func snapPxRect(_ r: CGRect) -> CGRect {
+    func quantizeAndClampPxRect(_ r: CGRect) -> CGRect {
         var x0 = floor(r.minX), y0 = floor(r.minY)
         var x1 = floor(r.maxX), y1 = floor(r.maxY)
         x0 = max(0, min(x0, imagePixels.width))
@@ -480,21 +471,15 @@ struct PixelMapper {
         return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
     }
     
-    func snapRectToPixels(docStart sDoc: CGPoint, docEnd eDoc: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
-        // doc → px
-        let sPx = docToPx(sDoc), ePx = docToPx(eDoc)
-        // 规范化 + 量子化
-        let x0 = floor(min(sPx.x, ePx.x)), y0 = floor(min(sPx.y, ePx.y))
-        let x1 = floor(max(sPx.x, ePx.x)), y1 = floor(max(sPx.y, ePx.y))
-        var rPx = CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
-        // 夹紧到图像边界
-        rPx.origin.x = max(0, min(rPx.origin.x, imagePixels.width))
-        rPx.origin.y = max(0, min(rPx.origin.y, imagePixels.height))
-        rPx.size.width  = max(0, min(rPx.maxX, imagePixels.width)  - rPx.origin.x)
-        rPx.size.height = max(0, min(rPx.maxY, imagePixels.height) - rPx.origin.y)
-        // px → doc
+    func snapDocRect(startDoc s: CGPoint, endDoc e: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
+        let sPx = docToPx(s), ePx = docToPx(e)
+        let rawPx = CGRect(x: min(sPx.x, ePx.x),
+                           y: min(sPx.y, ePx.y),
+                           width: abs(ePx.x - sPx.x),
+                           height: abs(ePx.y - sPx.y))
+        let rPx = quantizeAndClampPxRect(rawPx)
         let rDoc = CGRect(origin: pxToDoc(rPx.origin),
-                          size:   .init(width: rPx.width / sx, height: rPx.height / sy))
+                          size: .init(width: rPx.width / sx, height: rPx.height / sy))
         return (rDoc, rPx)
     }
 }

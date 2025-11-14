@@ -77,7 +77,7 @@ extension PanMarqueeScrollView.Coordinator {
                          to currentDoc: CGPoint,
                          fireDragging: Bool) {
         guard let m = makeMapper() else { return }
-        let snapped = m.snapRectToPixels(docStart: startDoc, docEnd: currentDoc)
+        let snapped = m.snapDocRect(startDoc: startDoc, endDoc: currentDoc)
         selectionLayer.update(snapped: snapped)
         onChanged?(snapped.rectPx)
         if fireDragging {

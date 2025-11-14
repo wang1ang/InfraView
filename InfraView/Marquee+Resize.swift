@@ -12,7 +12,7 @@ extension PanMarqueeScrollView.Coordinator {
     /// 将 px 矩形提交到 overlay（统一在这里 snap）
     func commitSelectionPx(_ rPx: CGRect) -> CGRect? {
         guard let m = makeMapper() else { return nil }
-        let snapped = m.snapPxRect(rPx)                     // ← 量化
+        let snapped = m.quantizeAndClampPxRect(rPx)                     // ← 量化
         let rDoc = CGRect(origin: m.pxToDoc(snapped.origin),
                           size:   CGSize(width: snapped.width / m.sx,
                                          height: snapped.height / m.sy))
@@ -102,8 +102,6 @@ extension PanMarqueeScrollView.Coordinator {
                 resizingEdge = .bottom
             }
         }
-
-        rPx = m.clampPxRect(rPx)
         guard let snapped = commitSelectionPx(rPx) else { return }
         // 拖动中显示“Dragging Rect”
         showDragging(for: snapped)
