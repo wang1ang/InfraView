@@ -41,11 +41,13 @@ struct ContentView: View {
                    fitMode: fitMode
             )
         }
+        /*
         .background(
             InstallDeleteResponder {
                 requestDelete()
             }
         )
+        */
         .onDeleteCommand {
             requestDelete()
         }
@@ -438,6 +440,8 @@ extension Notification.Name {
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
     static let infraCopy = Notification.Name("InfraView.Copy")
+    static let infraCut = Notification.Name("InfraView.Cut")
+    static let infraSelectAll = Notification.Name("InfraView.SelectAll")
     static let infraToggleStatusBar = Notification.Name("InfraView.ToggleStatusBar")
 }
 

@@ -12,9 +12,6 @@ struct InfraViewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var bar = StatusBarStore.shared
 
-    init() {
-        bindDeleteToCommandBackspace()
-    }
     var body: some Scene {
         WindowGroup {
             ContentViewWithStatusBar()
@@ -37,10 +34,19 @@ struct InfraViewApp: App {
                 .keyboardShortcut("S", modifiers: [])
             }
             CommandGroup(replacing: .pasteboard) {
+                Button("Cut") {
+                    NotificationCenter.default.post(name: .infraCut, object: nil)
+                }.keyboardShortcut(KeyEquivalent("x"), modifiers: .command)
                 Button("Copy") {
                     NotificationCenter.default.post(name: .infraCopy, object: nil)
-                }
-                .keyboardShortcut("c", modifiers: .command)
+                }.keyboardShortcut("c", modifiers: .command)
+                // paste
+                Button("Delete") {
+                    NotificationCenter.default.post(name: .infraDelete, object: nil)
+                }.keyboardShortcut(.delete, modifiers: .command)
+                Button("Select All") {
+                    NotificationCenter.default.post(name: .infraSelectAll, object: nil)
+                }.keyboardShortcut("a", modifiers: .command)
             }
         }
     }
