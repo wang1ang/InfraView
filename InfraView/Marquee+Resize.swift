@@ -29,6 +29,7 @@ extension PanMarqueeScrollView.Coordinator {
         showSelection(for: snapped)
         selectionStartInDoc = nil
         lastMouseDownDocPoint = nil
+        lastMarqueeLocationInCV = nil
     }
     
     func beganResizingEdge(_ edge: Edge, on doc: NSView) {

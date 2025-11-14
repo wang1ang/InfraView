@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import CoreGraphics
 
 extension PanMarqueeScrollView.Coordinator {
     enum Edge { case left, right, top, bottom }
@@ -93,6 +94,68 @@ extension PanMarqueeScrollView.Coordinator {
         if restoreTitle {
             windowTitle.restoreBase(of: scrollView?.window)
         }
+        selectionStartInDoc = nil
+        lastMouseDownDocPoint = nil
+        lastMarqueeLocationInCV = nil
+
     }
 }
 
+extension PanMarqueeScrollView.Coordinator {
+
+    /// 当拖拽位置靠近/超出边缘时，自动滚动视口，并把坐标夹回安全区边缘。
+    /// 使用 lastMarqueeLocationInCV 作为“上一帧位置”，只在鼠标继续朝越界方向移动时才滚动。
+    func autoScrollIfNeeded(cursorInContentView p: NSPoint) {
+        guard let sv = scrollView,
+              let doc = sv.documentView else { return }
+
+        let cv = sv.contentView
+        let bounds = cv.bounds
+
+        // 安全区域：只有出了这个范围才触发滚动
+        let inset: CGFloat = 20
+        let safeRect = bounds.insetBy(dx: inset, dy: inset)
+
+        // 第一次：记录锚点
+        guard let anchor = lastMarqueeLocationInCV else {
+            return
+        }
+
+        // 在安全区内：不滚动，锚点跟着走
+        if safeRect.contains(p) {
+            return
+        }
+
+        // 以“上一帧位置（anchor）”作为方向参考
+        let dx = p.x - anchor.x
+        let dy = p.y - anchor.y
+
+        var origin = bounds.origin
+
+        // --- X 方向 ---
+        if p.x < safeRect.minX && dx < 0 || p.x > safeRect.maxX && dx > 0{
+            let acc = max(safeRect.minX - p.x, p.x - safeRect.maxX)
+            origin.x += signedSqrt(dx) * (1 + acc / inset)
+        }
+        // --- Y 方向 ---
+        if p.y < safeRect.minY && dy < 0 || p.y > safeRect.maxY && dy > 0 {
+            let acc = max(safeRect.minY - p.y, p.y - safeRect.maxY)
+            origin.y += signedSqrt(dy) * (1 + acc / inset)
+        }
+        // clamp 到合法范围
+        origin = clampOrigin(origin, cv: cv, doc: doc)
+        if origin != bounds.origin {
+            cv.scroll(to: origin)
+            sv.reflectScrolledClipView(cv) // 更新滑块位置
+        }
+    }
+}
+func signedSqrt(_ v: CGFloat) -> CGFloat {
+    if v > 0 {
+        return  sqrt(v)
+    } else if v < 0 {
+        return -sqrt(-v)
+    } else {
+        return 0
+    }
+}

@@ -81,7 +81,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
             if let o = rotateObserver  { NotificationCenter.default.removeObserver(o) }
         }
-        var lastMouseDownDocPoint: NSPoint?
+        var lastMouseDownDocPoint: NSPoint? // 框的起点，由 mouse down 记录
+        var lastMarqueeLocationInCV: NSPoint? // 判断拖动方向
 
         let windowTitle = WindowTitle()
         
@@ -186,8 +187,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             guard let sv = scrollView,
                   let doc = sv.documentView else { return }
             let cv = sv.contentView
+            var pInCV = g.location(in: cv)
+            if g.state == .began || g.state == .changed {
+                autoScrollIfNeeded(cursorInContentView: pInCV)
+                pInCV = g.location(in: cv)
+                lastMarqueeLocationInCV = pInCV
+            }
             // 把手势位置从 contentView 坐标转到 documentView 坐标
-            var p = cv.convert(g.location(in: cv), to: doc)
+            var p = cv.convert(pInCV, to: doc)
             p = restrictP(p: p)
             switch g.state {
             case .began:
@@ -280,6 +287,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 var pDoc  = cv.convert(pInCV, to: doc)
                 pDoc = self.restrictP(p: pDoc)
                 self.lastMouseDownDocPoint = pDoc
+                self.lastMarqueeLocationInCV = pInCV
                 NSCursor.crosshair.push()
 
                 // ✅ 新增：如果是点在“选框边缘”，说明要进入缩放；此时不要显示取色标题
@@ -422,7 +430,7 @@ final class CenteringClipView: NSClipView {
 }
 
 /// 将原点限制在合法范围并处理“小图居中”的情形
-private func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
+func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
     var o = o
     let dw = doc.bounds.width, dh = doc.bounds.height
     let cw = cv.bounds.width, ch = cv.bounds.height
