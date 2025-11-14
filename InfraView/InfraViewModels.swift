@@ -225,7 +225,10 @@ final class ViewerViewModel: ObservableObject {
         let newQ = ((oldQ + q) % 4 + 4) % 4
         RotationStore.shared.set(newQ, for: url)
         
-        processedImage = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
+        let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
+        processedImage = rotated
+        // 旋转不参与Undo
+        resetHistoryForNewImage(from: rotated)
         
         drive(reason: .fitToggle, mode: fitMode)
         //onScaleChanged?(Int(round(zoom * 100)))
