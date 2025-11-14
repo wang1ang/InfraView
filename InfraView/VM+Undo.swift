@@ -26,12 +26,28 @@ extension ViewerViewModel {
     }
 
     // 用某个 CGImage 覆盖当前图像
+    /*
     func applyImage(_ cg: CGImage) {
         currentCGImage = cg
         let size = processedImage?.size ?? NSSize(width: cg.width, height: cg.height)
         let nsImage = NSImage(cgImage: cg, size: size)
         processedImage = nsImage
+    }*/
+    func applyImage(_ cg: CGImage) {
+        currentCGImage = cg
+
+        // 用 CGImage 自己的像素尺寸来当显示尺寸，不再继承旧图的 size
+        // 如果想考虑 Retina，可以除以屏幕 scale：
+        let scale = NSScreen.main?.backingScaleFactor ?? 1.0
+        let size = NSSize(
+            width:  CGFloat(cg.width)  / scale,
+            height: CGFloat(cg.height) / scale
+        )
+
+        let nsImage = NSImage(cgImage: cg, size: size)
+        processedImage = nsImage
     }
+
 
     func undo() {
         guard let last = undoStack.popLast() else { return }

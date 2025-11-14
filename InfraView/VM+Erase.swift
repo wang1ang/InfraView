@@ -71,3 +71,43 @@ extension ViewerViewModel {
         }
     }
 }
+
+
+extension ViewerViewModel {
+    func cropSelection() {
+        // 1. 没选区就不用干活
+        guard let rectPxRaw = selectionRectPx,
+              rectPxRaw.width > 0, rectPxRaw.height > 0
+        else { return }
+
+        // 2. 确保有 currentCGImage（和 eraseSelection 一样的前奏）
+        if currentCGImage == nil,
+           let img = processedImage,
+           let cg = img.cgImageSafe {
+            currentCGImage = cg
+        }
+        guard let cg = currentCGImage else { return }
+
+        let imgHeight = CGFloat(cg.height)
+
+        // 3. selectionRectPx：左上原点
+        //    CoreGraphics：左下原点
+        var cropRectCG = CGRect(
+            x: rectPxRaw.minX,
+            y: imgHeight - rectPxRaw.maxY,
+            width: rectPxRaw.width,
+            height: rectPxRaw.height
+        )
+        // 5. 进撤销栈
+        pushUndoSnapshot()
+
+        // 6. 直接用 CGImage 自带的 cropping，不做任何缩放
+        guard let newCG = cg.cropping(to: cropRectCG) else { return }
+
+        DispatchQueue.main.async {
+            // 7. 用你现有的统一入口更新图像
+            self.applyImage(newCG)
+            self.selectionRectPx = nil
+        }
+    }
+}
