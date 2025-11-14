@@ -22,13 +22,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             imagePixels: CGSize,
             baseSize: CGSize,
             zoom: Binding<CGFloat>,
-            viwerVM: ViewerViewModel,
+            viewerVM: ViewerViewModel,
             
             @ViewBuilder content: () -> Content) {
         self._zoom = zoom
         self.imagePixels = imagePixels
         self.baseSize = baseSize
-        self.viewerVM = viwerVM
+        self.viewerVM = viewerVM
         self.content = content()
     }
     
@@ -227,15 +227,9 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 
                 guard !suppressMarquee, let s = selectionStartInDoc, let m = makeMapper() else { return }
                 let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
-                
                 selectionLayer.update(snapped: snapped)
                 onChanged?(snapped.rectPx)
-                
-                let w = Int(snapped.rectPx.width.rounded())
-                let h = Int(snapped.rectPx.height.rounded())
-                let x = Int(snapped.rectPx.origin.x.rounded())
-                let y = Int(snapped.rectPx.origin.y.rounded())
-                windowTitle.showDraggingRect(of: scrollView?.window, x: x, y: y, w: w, h: h)
+                showDragging(for: snapped.rectPx)
             case .ended, .cancelled:
                 // [EDGE-RESIZE] 完成沿边缩放
                 if resizingEdge != nil {
@@ -253,11 +247,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 onFinished?(snapped.rectPx)
                 viewerVM?.updateSelection(rectPx: snapped.rectPx)
                 selectionStartInDoc = nil
-                let w = Int(snapped.rectPx.width.rounded())
-                let h = Int(snapped.rectPx.height.rounded())
-                let x = Int(snapped.rectPx.origin.x.rounded())
-                let y = Int(snapped.rectPx.origin.y.rounded())
-                windowTitle.showSelection(of: scrollView?.window, x: x, y: y, w: w, h: h)
+                showSelection(for: snapped.rectPx)
                 lastMouseDownDocPoint = nil
             default:
                 break
@@ -541,87 +531,6 @@ final class SelectionOverlay {
     func clear() {
         layer.path = nil
         currentSelectionPx = nil
-    }
-}
-
-
-final class WindowTitle {
-    private var base: String?
-
-    /// 切图 / 视图更新时调用，清空缓存的 base
-    func reset() {
-        base = nil
-    }
-
-    private func cleanedTitle(from title: String) -> String {
-        title
-            .replacingOccurrences(of: #" — XY:.*$"#,
-                                  with: "",
-                                  options: .regularExpression)
-            .replacingOccurrences(of: #" — Selection:.*$"#,
-                                  with: "",
-                                  options: .regularExpression)
-    }
-
-    private func ensureBase(from window: NSWindow) {
-        if base == nil || base!.isEmpty {
-            base = cleanedTitle(from: window.title)
-        }
-    }
-
-    private func ratioText(_ w: Int, _ h: Int) -> String {
-        (w > 0 && h > 0) ? String(format: "%.4f", Double(w) / Double(h)) : "-"
-    }
-
-    private func xy(_ x: Int, _ y: Int) -> String {
-        "XY:(\(x),\(y))"
-    }
-
-    // MARK: - Public API（和你现在的调用保持一致）
-
-    func restoreBase(of window: NSWindow?) {
-        guard let win = window else { return }
-        ensureBase(from: win)
-        win.title = base ?? win.title
-    }
-
-    func showDraggingRect(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
-        guard let win = window else { return }
-        if w > 0 && h > 0 {
-            let ratio = ratioText(w, h)
-            win.title = "\(xy(x, y))(\(w)x\(h) pixels, \(ratio))"
-        } else {
-            win.title = xy(x, y)
-        }
-    }
-
-    func showSelection(of window: NSWindow?, x: Int, y: Int, w: Int, h: Int) {
-        guard let win = window else { return }
-        ensureBase(from: win)
-        guard let base = base else { return }
-
-        if w > 0 && h > 0 {
-            let ratio = ratioText(w, h)
-            win.title = "\(base) — Selection: \(x), \(y); \(w) x \(h); \(ratio)"
-        } else {
-            win.title = base
-        }
-    }
-
-    func showColor(of window: NSWindow?, x: Int, y: Int, color: NSColor?) {
-        guard let win = window else { return }
-        ensureBase(from: win)
-
-        if let c = color?.usingColorSpace(.sRGB) {
-            let r = Int(round(c.redComponent   * 255))
-            let g = Int(round(c.greenComponent * 255))
-            let b = Int(round(c.blueComponent  * 255))
-            let a = Int(round(c.alphaComponent * 255))
-            let html = String(format: "#%02X%02X%02X", r, g, b)
-            win.title = "XY:(\(x),\(y)) - RGB:(\(r),\(g),\(b),a:\(a)), HTML:(\(html))"
-        } else {
-            win.title = xy(x, y)
-        }
     }
 }
 

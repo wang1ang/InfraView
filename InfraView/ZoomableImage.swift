@@ -69,7 +69,7 @@ struct ZoomableImage: View {
                 imagePixels: imagePixels,
                 baseSize: CGSize(width: baseW, height: baseH),
                 zoom: $zoom,
-                viwerVM: viewerVM
+                viewerVM: viewerVM
             ) {
                 content
             }

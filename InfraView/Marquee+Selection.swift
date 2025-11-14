@@ -5,9 +5,6 @@
 //  Created by 王洋 on 13/11/2025.
 //
 
-import SwiftUI
-import AppKit
-import SwiftUI
 import AppKit
 
 extension PanMarqueeScrollView.Coordinator {

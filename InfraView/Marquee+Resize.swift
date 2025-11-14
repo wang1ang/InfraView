@@ -54,12 +54,9 @@ extension PanMarqueeScrollView.Coordinator {
         resizingEdge = edge
         ensureSelectionLayer(on: doc)
         // 显示当前选框状态
+        
         if let rPx = selectionLayer.currentSelectionPx {
-            let x = Int(rPx.origin.x.rounded())
-            let y = Int(rPx.origin.y.rounded())
-            let w = Int(rPx.width.rounded())
-            let h = Int(rPx.height.rounded())
-            windowTitle.showDraggingRect(of: scrollView?.window, x: x, y: y, w: w, h: h)
+            showDragging(for: rPx)
         }
     }
     
@@ -130,23 +127,14 @@ extension PanMarqueeScrollView.Coordinator {
 
         rPx = clampPxRect(rPx)
         commitSelectionPx(rPx)
-        // ← 关键：拖动中显示“Dragging Rect”
-        let x = Int(rPx.origin.x.rounded())
-        let y = Int(rPx.origin.y.rounded())
-        let w = Int(rPx.width.rounded())
-        let h = Int(rPx.height.rounded())
-        windowTitle.showDraggingRect(of: scrollView?.window, x: x, y: y, w: w, h: h)
+        // 拖动中显示“Dragging Rect”
+        showDragging(for: rPx)
     }
 
     func endedResizingEdge() {
         if let rPx = selectionLayer.currentSelectionPx {
             finishSelectionPx(rPx)        // ← 关键：结束时显示“Selection …”
-            let x = Int(rPx.origin.x.rounded())
-            let y = Int(rPx.origin.y.rounded())
-            let w = Int(rPx.width.rounded())
-            let h = Int(rPx.height.rounded())
-            windowTitle.showSelection(of: scrollView?.window, x: x, y: y, w: w, h: h)
-
+            showSelection(for: rPx)
         }
         resizingEdge = nil
         lastMouseDownDocPoint = nil
