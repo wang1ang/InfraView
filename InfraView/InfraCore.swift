@@ -216,14 +216,31 @@ final class WindowZoomHelper: NSObject, NSWindowDelegate {
         return defaultFrame
     }
 }
-
+/*
 @MainActor
 func displayScaleFactor() -> CGFloat {
     if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
        let s = w.screen { return s.backingScaleFactor }
     return NSScreen.main?.backingScaleFactor ?? 2.0
 }
+*/
+func displayScaleFactor() -> CGFloat {
+    if Thread.isMainThread {
+        return displayScaleFactorImpl()
+    } else {
+        return DispatchQueue.main.sync {
+            displayScaleFactorImpl()
+        }
+    }
+}
 
+private func displayScaleFactorImpl() -> CGFloat {
+    if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
+       let s = w.screen {
+        return s.backingScaleFactor
+    }
+    return NSScreen.main?.backingScaleFactor ?? 2.0
+}
 func pixelSize(_ img: NSImage) -> CGSize {
     var maxW = 0, maxH = 0
     for rep in img.representations where rep.pixelsWide > 0 && rep.pixelsHigh > 0 { maxW = max(maxW, rep.pixelsWide); maxH = max(maxH, rep.pixelsHigh) }
