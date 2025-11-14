@@ -55,6 +55,8 @@ extension PanMarqueeScrollView.Coordinator {
                 return e
             }
 
+            let pDoc = cv.convert(pCV, to: doc)
+
             if let edge = self.hitTestEdge(pDoc: pDoc) {
                 switch edge {
                 case .left, .right: NSCursor.resizeLeftRight.set()
