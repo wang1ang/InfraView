@@ -20,9 +20,15 @@ extension ViewerViewModel {
               rectPx.width > 0, rectPx.height > 0
         else { return }
 
-        guard let srcImage = processedImage,
-              let cg = srcImage.cgImageSafe
-        else { return }
+        pushUndoSnapshot()
+        
+        // 优先用 currentCGImage，如果没有就从 processedImage 拿一次
+        if currentCGImage == nil,
+            let img = processedImage,
+            let cg = img.cgImageSafe {
+             currentCGImage = cg
+        }
+        guard let cg = currentCGImage else { return }
 
         let width  = cg.width
         let height = cg.height
@@ -55,10 +61,11 @@ extension ViewerViewModel {
 
         guard let newCG = ctx.makeImage() else { return }
 
-        let newNSImage = NSImage(cgImage: newCG, size: srcImage.size)
+        //let newNSImage = NSImage(cgImage: newCG, size: srcImage.size)
 
         DispatchQueue.main.async {
-            self.processedImage = newNSImage
+            //self.processedImage = newNSImage
+            self.applyImage(newCG)
             self.selectionRectPx = nil   // 清掉选区
             // 如果你有别的地方依赖选区变化，这里可以发通知或调用回调
         }

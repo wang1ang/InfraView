@@ -18,6 +18,16 @@ struct InfraViewApp: App {
         }
         //.windowStyle(.titleBar)
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NotificationCenter.default.post(name: .infraUndo, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                Button("Redo") {
+                    NotificationCenter.default.post(name: .infraRedo, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
             CommandGroup(after: .sidebar) {
                 Button("Rotate Left") {
                     NotificationCenter.default.post(name: .infraRotate, object: -1)

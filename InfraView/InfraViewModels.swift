@@ -14,6 +14,13 @@ final class ViewerViewModel: ObservableObject {
     @Published var loadingError: String?
     @Published var selectionRectPx: CGRect?
     
+    // 撤销栈
+    var currentCGImage: CGImage?          // 当前图
+    var undoStack: [CGImage] = []         // 撤销栈
+    var redoStack: [CGImage] = []         // 重做栈
+    let maxHistory = 3                    // 最多保留多少步
+
+    
     public var window: NSWindow?
 
     private var baseImage: NSImage?
@@ -139,7 +146,9 @@ final class ViewerViewModel: ObservableObject {
         if let cached = cache.get(url) {
             baseImage = cached
             let q = RotationStore.shared.get(for: url)
-            processedImage = (q == 0) ? cached : rotate(cached, quarterTurns: q)
+            let final = (q == 0) ? cached : rotate(cached, quarterTurns: q)
+            processedImage = final
+            resetHistoryForNewImage(from: final)
             drive(reason: .newImage, mode: fitMode)
         } else {
             // 2) 没缓存：异步加载，回主线程后再应用旋转并 drive
@@ -153,7 +162,9 @@ final class ViewerViewModel: ObservableObject {
                         self.baseImage = img
                         self.cache.set(url, img)
                         let q = RotationStore.shared.get(for: url)
-                        self.processedImage = (q == 0) ? img : rotate(img, quarterTurns: q)
+                        let final = (q == 0) ? img : rotate(img, quarterTurns: q)
+                        self.processedImage = final
+                        self.resetHistoryForNewImage(from: final)
                         self.drive(reason: .newImage, mode: fitMode)
                     } else {
                         self.loadingError = "Unsupported image format."

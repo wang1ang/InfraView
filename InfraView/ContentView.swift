@@ -168,6 +168,14 @@ struct ContentView: View {
                 viewerVM.eraseSelection()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .infraUndo)) { _ in
+            guard viewerVM.window?.isKeyWindow == true else { return }
+            viewerVM.undo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .infraRedo)) { _ in
+            guard viewerVM.window?.isKeyWindow == true else { return }
+            viewerVM.redo()
+        }
     }
 
     // 工具栏绑定改到 viewerVM
@@ -455,6 +463,8 @@ extension Notification.Name {
     static let infraCopy = Notification.Name("InfraView.Copy")
     static let infraCut = Notification.Name("InfraView.Cut")
     static let infraSelectAll = Notification.Name("InfraView.SelectAll")
+    static let infraUndo = Notification.Name("InfraView.Undo")
+    static let infraRedo = Notification.Name("InfraView.Redo")
     static let infraToggleStatusBar = Notification.Name("InfraView.ToggleStatusBar")
 }
 
