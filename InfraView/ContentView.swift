@@ -176,6 +176,11 @@ struct ContentView: View {
             guard viewerVM.window?.isKeyWindow == true else { return }
             viewerVM.redo()
         }
+        /*
+        .onReceive(NotificationCenter.default.publisher(for: .infraCrop)) { _ in
+            guard viewerVM.window?.isKeyWindow == true else { return }
+            viewerVM.cropSelection()
+        }*/
     }
 
     // 工具栏绑定改到 viewerVM
@@ -462,6 +467,7 @@ extension Notification.Name {
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
     static let infraCopy = Notification.Name("InfraView.Copy")
     static let infraCut = Notification.Name("InfraView.Cut")
+    static let infraCrop = Notification.Name("InfraView.Crop")
     static let infraSelectAll = Notification.Name("InfraView.SelectAll")
     static let infraUndo = Notification.Name("InfraView.Undo")
     static let infraRedo = Notification.Name("InfraView.Redo")

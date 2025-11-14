@@ -120,3 +120,23 @@ extension PanMarqueeScrollView.Coordinator {
     }
 }
 
+extension PanMarqueeScrollView.Coordinator {
+    @MainActor
+    func handleSelectAll() {
+        // 只响应当前这个 window 是 key 的情况
+        guard let sv = scrollView,
+              let doc = sv.documentView,
+              sv.window?.isKeyWindow == true
+        else { return }
+
+        // 整张图的像素选区
+        let rectPx = CGRect(
+            x: 0,
+            y: 0,
+            width: imagePixels.width,
+            height: imagePixels.height
+        )
+        ensureSelectionLayer(on: doc)
+        finishSelectionPx(rectPx)
+    }
+}

@@ -57,6 +57,10 @@ struct InfraViewApp: App {
                 Button("Select All") {
                     NotificationCenter.default.post(name: .infraSelectAll, object: nil)
                 }.keyboardShortcut("a", modifiers: .command)
+                Button("Crop") {
+                    NotificationCenter.default.post(name: .infraCrop, object: nil)
+                }
+
             }
         }
     }
