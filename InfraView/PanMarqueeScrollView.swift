@@ -235,12 +235,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 NSCursor.pop()
                 guard let s = selectionStartInDoc, let m = makeMapper() else { return }
                 let snapped = m.snapDocRect(startDoc: s, endDoc: p)
-                selectionLayer.update(snapped: snapped)
-                onFinished?(snapped.rectPx)
-                viewerVM?.updateSelection(rectPx: snapped.rectPx)
-                selectionStartInDoc = nil
-                showSelection(for: snapped.rectPx)
-                lastMouseDownDocPoint = nil
+                finishSelectionPx(snapped.rectPx)
             default:
                 break
             }

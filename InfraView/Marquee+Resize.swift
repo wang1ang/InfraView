@@ -26,6 +26,9 @@ extension PanMarqueeScrollView.Coordinator {
         guard let snapped = commitSelectionPx(rPx) else { return }
         onFinished?(snapped)
         viewerVM?.updateSelection(rectPx: snapped)
+        showSelection(for: snapped)
+        selectionStartInDoc = nil
+        lastMouseDownDocPoint = nil
     }
     
     func beganResizingEdge(_ edge: Edge, on doc: NSView) {
@@ -110,9 +113,9 @@ extension PanMarqueeScrollView.Coordinator {
     func endedResizingEdge() {
         if let rPx = selectionLayer.currentSelectionPx {
             finishSelectionPx(rPx)        // ← 关键：结束时显示“Selection …”
-            showSelection(for: rPx)
         }
         resizingEdge = nil
         lastMouseDownDocPoint = nil
     }
 }
+
