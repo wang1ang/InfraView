@@ -69,3 +69,29 @@ extension PanMarqueeScrollView.Coordinator {
         }
     }
 }
+
+
+extension PanMarqueeScrollView.Coordinator {
+    /// 从 doc 空间两点更新选框，fireDragging 为 true 时顺便更新标题
+    func updateSelection(from startDoc: CGPoint,
+                         to currentDoc: CGPoint,
+                         fireDragging: Bool) {
+        guard let m = makeMapper() else { return }
+        let snapped = m.snapRectToPixels(docStart: startDoc, docEnd: currentDoc)
+        selectionLayer.update(snapped: snapped)
+        onChanged?(snapped.rectPx)
+        if fireDragging {
+            showDragging(for: snapped.rectPx)
+        }
+    }
+    func clearSelection(updateVM: Bool = true,
+                        restoreTitle: Bool = true) {
+        selectionLayer.clear()
+        if updateVM {
+            viewerVM?.updateSelection(rectPx: nil)
+        }
+        if restoreTitle {
+            windowTitle.restoreBase(of: scrollView?.window)
+        }
+    }
+}

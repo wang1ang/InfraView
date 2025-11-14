@@ -71,9 +71,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 ) { [weak self] _ in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        self.selectionLayer.clear()
-                        self.windowTitle.restoreBase(of: self.scrollView?.window)
-                        self.viewerVM?.updateSelection(rectPx: nil)
+                        self.clearSelection(updateVM: true, restoreTitle: true)
                     }
             }
         }
@@ -164,8 +162,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if path.contains(pDoc) {
                     onSelectionTap?(pDoc)                // 交给外部放大
             } else {
-                selectionLayer.clear()
-                windowTitle.restoreBase(of: scrollView?.window)
+                clearSelection(updateVM: true, restoreTitle: false)
             }
         }
         @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
@@ -213,10 +210,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 //NSCursor.crosshair.push()
                 selectionStartInDoc = p
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
-                if let s = selectionStartInDoc, let m = makeMapper() {
-                    let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
-                    selectionLayer.update(snapped: snapped)
-                    onChanged?(snapped.rectPx)
+                if let s = selectionStartInDoc {
+                    updateSelection(from: s, to: p, fireDragging: true)
                 }
             case .changed:
                 // [EDGE-RESIZE] 处于沿边缩放
@@ -225,11 +220,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     return
                 }
                 
-                guard !suppressMarquee, let s = selectionStartInDoc, let m = makeMapper() else { return }
-                let snapped = m.snapRectToPixels(docStart: s, docEnd: p)
-                selectionLayer.update(snapped: snapped)
-                onChanged?(snapped.rectPx)
-                showDragging(for: snapped.rectPx)
+                guard !suppressMarquee, let s = selectionStartInDoc else { return }
+                updateSelection(from: s, to: p, fireDragging: true)
             case .ended, .cancelled:
                 // [EDGE-RESIZE] 完成沿边缩放
                 if resizingEdge != nil {
@@ -286,8 +278,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 if selectionLayer.layer.path != nil {
                     let docRectInCV = cv.convert(doc.bounds, from: doc)
                     if !docRectInCV.contains(pInCV) {
-                        selectionLayer.clear()
-                        viewerVM?.updateSelection(rectPx: nil)
+                        clearSelection(updateVM: true, restoreTitle: true)
                     }
                 }
                 
@@ -462,6 +453,33 @@ struct PixelMapper {
     func docToPx(_ p: CGPoint) -> CGPoint { .init(x: p.x * sx, y: p.y * sy) }
     func pxToDoc(_ p: CGPoint) -> CGPoint { .init(x: p.x / sx, y: p.y / sy) }
 
+    // MARK: - Doc 边界
+    func clampDocPoint(_ p: CGPoint) -> CGPoint {
+        let w = contentSize.width, h = contentSize.height
+        return .init(x: min(max(0, p.x), w),
+                     y: min(max(0, p.y), h))
+    }
+    /// 夹紧到像素边界（基于 imagePixels）
+    func clampPxRect(_ r: CGRect) -> CGRect {
+        var r = r
+        r.origin.x = max(0, min(r.origin.x, imagePixels.width))
+        r.origin.y = max(0, min(r.origin.y, imagePixels.height))
+        r.size.width  = max(0, min(r.maxX, imagePixels.width)  - r.origin.x)
+        r.size.height = max(0, min(r.maxY, imagePixels.height) - r.origin.y)
+        return r
+    }
+    
+    /// 把矩形贴齐到像素网格（floor）并夹紧到边界
+    func snapPxRect(_ r: CGRect) -> CGRect {
+        var x0 = floor(r.minX), y0 = floor(r.minY)
+        var x1 = floor(r.maxX), y1 = floor(r.maxY)
+        x0 = max(0, min(x0, imagePixels.width))
+        y0 = max(0, min(y0, imagePixels.height))
+        x1 = max(0, min(x1, imagePixels.width))
+        y1 = max(0, min(y1, imagePixels.height))
+        return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
+    }
+    
     func snapRectToPixels(docStart sDoc: CGPoint, docEnd eDoc: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
         // doc → px
         let sPx = docToPx(sDoc), ePx = docToPx(eDoc)
@@ -478,11 +496,6 @@ struct PixelMapper {
         let rDoc = CGRect(origin: pxToDoc(rPx.origin),
                           size:   .init(width: rPx.width / sx, height: rPx.height / sy))
         return (rDoc, rPx)
-    }
-
-    func clampDocPoint(_ p: CGPoint) -> CGPoint {
-        let w = contentSize.width, h = contentSize.height
-        return .init(x: min(max(0, p.x), w), y: min(max(0, p.y), h))
     }
 }
 extension PanMarqueeScrollView.Coordinator {

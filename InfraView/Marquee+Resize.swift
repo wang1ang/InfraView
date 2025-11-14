@@ -9,45 +9,23 @@ import SwiftUI
 import AppKit
 
 extension PanMarqueeScrollView.Coordinator {
-    
-    /// 夹紧到像素边界（基于 imagePixels）
-    func clampPxRect(_ r: CGRect) -> CGRect {
-        var r = r
-        r.origin.x = max(0, min(r.origin.x, imagePixels.width))
-        r.origin.y = max(0, min(r.origin.y, imagePixels.height))
-        r.size.width  = max(0, min(r.maxX, imagePixels.width)  - r.origin.x)
-        r.size.height = max(0, min(r.maxY, imagePixels.height) - r.origin.y)
-        return r
-    }
-    
-    /// 把矩形贴齐到像素网格（与 snapRectToPixels 一致：用 floor）
-    func snapPxRect(_ r: CGRect) -> CGRect {
-        var x0 = floor(r.minX), y0 = floor(r.minY)
-        var x1 = floor(r.maxX), y1 = floor(r.maxY)
-        // 夹紧到图像边界
-        x0 = max(0, min(x0, imagePixels.width))
-        y0 = max(0, min(y0, imagePixels.height))
-        x1 = max(0, min(x1, imagePixels.width))
-        y1 = max(0, min(y1, imagePixels.height))
-        return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
-    }
-
     /// 将 px 矩形提交到 overlay（统一在这里 snap）
-    func commitSelectionPx(_ rPx: CGRect) {
-        guard let m = makeMapper() else { return }
-        let snapped = snapPxRect(rPx)                     // ← 量化
+    func commitSelectionPx(_ rPx: CGRect) -> CGRect? {
+        guard let m = makeMapper() else { return nil }
+        let snapped = m.snapPxRect(rPx)                     // ← 量化
         let rDoc = CGRect(origin: m.pxToDoc(snapped.origin),
                           size:   CGSize(width: snapped.width / m.sx,
                                          height: snapped.height / m.sy))
         selectionLayer.update(rectInDoc: rDoc)
         selectionLayer.currentSelectionPx = snapped
         onChanged?(snapped)
+        return snapped
     }
     
     func finishSelectionPx(_ rPx: CGRect) {
-        commitSelectionPx(rPx)
-        onFinished?(rPx)
-        viewerVM?.updateSelection(rectPx: rPx)
+        guard let snapped = commitSelectionPx(rPx) else { return }
+        onFinished?(snapped)
+        viewerVM?.updateSelection(rectPx: snapped)
     }
     
     func beganResizingEdge(_ edge: Edge, on doc: NSView) {
@@ -125,10 +103,10 @@ extension PanMarqueeScrollView.Coordinator {
             }
         }
 
-        rPx = clampPxRect(rPx)
-        commitSelectionPx(rPx)
+        rPx = m.clampPxRect(rPx)
+        guard let snapped = commitSelectionPx(rPx) else { return }
         // 拖动中显示“Dragging Rect”
-        showDragging(for: rPx)
+        showDragging(for: snapped)
     }
 
     func endedResizingEdge() {
