@@ -31,7 +31,7 @@ extension PanMarqueeScrollView.Coordinator {
         lastMouseDownDocPoint = nil
         lastMarqueeLocationInCV = nil
     }
-    
+
     func beganResizingEdge(_ edge: Edge, on doc: NSView) {
         resizingEdge = edge
         ensureSelectionLayer(on: doc)
@@ -117,6 +117,57 @@ extension PanMarqueeScrollView.Coordinator {
         }
         resizingEdge = nil
         lastMouseDownDocPoint = nil
+    }
+}
+
+extension PanMarqueeScrollView.Coordinator {
+    /// 仅在拖动过程中更新选框（不 quantize、不 clamp 到像素）
+    /// rPx 是“连续坐标”，只拿来画 UI 和更新 VM
+    func updateSelectionWhileDragging(_ rPx: CGRect) {
+        guard let m = makeMapper() else { return }
+        let rDoc = CGRect(
+            origin: m.pxToDoc(rPx.origin),
+            size: CGSize(width: rPx.width / m.sx,
+                         height: rPx.height / m.sy)
+        )
+        selectionLayer.update(rectInDoc: rDoc)
+        selectionLayer.currentSelectionPx = rPx
+        onChanged?(rPx)
+        showDraggingInTitle(for: rPx)
+    }
+    /// 根据 contentView 内的 translation 移动选框（px 空间 + clamp）
+    func moveSelection(by translationInCV: CGPoint, cursorInDoc pDoc: CGPoint) {
+        guard translationInCV != .zero,
+              var rPx = selectionLayer.currentSelectionPx,
+              let m = makeMapper()
+        else { return }
+
+        // contentView 的 dx/dy 和 doc 的 dx/dy 是同一个坐标系（当前实现）
+        let deltaPx = CGPoint(x: translationInCV.x * m.sx,
+                              y: translationInCV.y * m.sy)
+        rPx.origin.x += deltaPx.x
+        rPx.origin.y += deltaPx.y
+
+        // 鼠标一定在选框内
+        let pPx = m.docToPx(pDoc)
+        if pPx.x < rPx.minX {
+            rPx.origin.x = pPx.x
+        } else if pPx.x > rPx.maxX {
+            rPx.origin.x = pPx.x - rPx.width
+        }
+        if pPx.y < rPx.minY {
+            rPx.origin.y = pPx.y
+        } else if pPx.y > rPx.maxY {
+            rPx.origin.y = pPx.y - rPx.height
+        }
+
+        // 允许的原点范围：[0, imagePixels - rectSize]
+        let maxX = imagePixels.width  - rPx.width
+        let maxY = imagePixels.height - rPx.height
+        rPx.origin.x = min(max(0, rPx.origin.x), maxX)
+        rPx.origin.y = min(max(0, rPx.origin.y), maxY)
+
+        updateSelectionWhileDragging(rPx)
     }
 }
 

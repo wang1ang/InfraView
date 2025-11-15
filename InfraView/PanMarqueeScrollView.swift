@@ -166,27 +166,56 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         }
 
+        enum PanMode { case none, scroll, moveSelection }
+        var panMode: PanMode = .none
         @objc func handlePan(_ g: NSPanGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
             let cv = sv.contentView
-            switch g.state {
-            case .began:
+
+            let pInCV = g.location(in: cv)
+            let pDoc = cv.convert(pInCV, to: doc)
+            // 1. 判断状态
+            if g.state == .began {
                 NSCursor.closedHand.push()
-            case .ended, .cancelled:
+                panMode = .scroll
+                if let rPx = selectionLayer.currentSelectionPx,
+                   let m = makeMapper() {
+                    let rDoc = m.pxToDoc(rPx)
+                    if rDoc.contains(pDoc) {
+                        panMode = .moveSelection
+                    }
+                }
+                // 开启 autoScrollIfNeeded 功能
+                //lastMarqueeLocationInCV = pInCV
+            }
+            // 2. 先处理结束，防止抬鼠标的位移
+            if g.state == .ended || g.state == .cancelled {
+                if panMode == .moveSelection,
+                    let rPx = selectionLayer.currentSelectionPx {
+                        finishSelectionPx(rPx)
+                }
+                panMode = .none
                 NSCursor.pop()
-            default:
+                return
+            }
+            // 3. 处理位移
+            let t = g.translation(in: cv)
+            g.setTranslation(.zero, in: cv) // reset translation
+            guard cv.bounds.contains(pInCV) else { return }
+            switch panMode {
+            case .moveSelection:
+                //autoScrollIfNeeded(cursorInContentView: pInCV)
+                //lastMarqueeLocationInCV = g.location(in: cv)
+                moveSelection(by: t, cursorInDoc: pDoc)
+            case .scroll:
+                var o = cv.bounds.origin
+                o.x -= t.x; o.y -= t.y
+                o = clampOrigin(o, cv: cv, doc: doc)
+                cv.scroll(to: o)
+                sv.reflectScrolledClipView(cv)
+            case .none:
                 break
             }
-            guard g.state == .began || g.state == .changed else { return }
-
-            let t = g.translation(in: cv)
-            g.setTranslation(.zero, in: cv)
-            var o = cv.bounds.origin
-            o.x -= t.x; o.y -= t.y
-            
-            o = clampOrigin(o, cv: cv, doc: doc)
-            cv.scroll(to: o)
-            sv.reflectScrolledClipView(cv)
         }
         
         @objc func handleZoomClick(_ g: NSClickGestureRecognizer) {
