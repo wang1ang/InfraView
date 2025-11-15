@@ -35,19 +35,11 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geo in
-            //let size = geo.size
             Viewer(store: store,
                    viewerVM: viewerVM,
                    fitMode: fitMode
             )
         }
-        /*
-        .background(
-            InstallDeleteResponder {
-                requestDelete()
-            }
-        )
-        */
         .onDeleteCommand {
             requestDelete()
         }
@@ -127,10 +119,8 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraDelete)) { _ in
             guard viewerVM.window?.isKeyWindow == true else { return }
-            if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
-                viewerVM.copySelectionToPasteboard()
-                viewerVM.eraseSelection()
-            } else {
+            let erased = viewerVM.eraseSelection()
+            if !erased {
                 requestDelete()
             }
         }
@@ -148,11 +138,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { note in
             guard viewerVM.window?.isKeyWindow == true else { return }
             print("InfraView Copy fired")
-               
-            if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
-                // copy selection
-                viewerVM.copySelectionToPasteboard()
-            } else {
+            
+            let copiedSelection = viewerVM.copySelectionToPasteboard()
+            if !copiedSelection {
                 // copy file
                 guard let idx = store.selection, idx < store.imageURLs.count else { return }
                 let url = store.imageURLs[idx]
@@ -162,9 +150,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraCut)) { _ in
-            guard viewerVM.window?.isKeyWindow == true else { return }
-            if let rect = viewerVM.selectionRectPx, rect.width > 0, rect.height > 0 {
-                viewerVM.copySelectionToPasteboard()
+            if viewerVM.copySelectionToPasteboard() {
                 viewerVM.eraseSelection()
             }
         }
@@ -455,6 +441,9 @@ extension UTType {
 }
 
 extension Notification.Name {
+    // File
+    static let infraSave = Notification.Name("infraSave")
+    
     static let infraNext = Notification.Name("InfraView.Next")
     static let infraPrev = Notification.Name("InfraView.Prev")
     static let infraDelete = Notification.Name("InfraView.Delete")

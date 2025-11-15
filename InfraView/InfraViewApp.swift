@@ -18,6 +18,12 @@ struct InfraViewApp: App {
         }
         //.windowStyle(.titleBar)
         .commands {
+            CommandGroup(after: .newItem) {
+                Button("Save") {
+                    NotificationCenter.default.post(name: .infraSave, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
                     NotificationCenter.default.post(name: .infraUndo, object: nil)

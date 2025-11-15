@@ -79,3 +79,5 @@ extension ViewerViewModel {
         selectionRectPx = nil
     }
 }
+
+
