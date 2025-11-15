@@ -37,13 +37,25 @@ final class ImageStore: ObservableObject {
 
     }
     
+    private func isSupportedImageURL(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ext.isEmpty { return false }
 
+        // 特判 webp（你已经有 webPCompat了）
+        if ext == "webp" { return true }
+
+        // 统一交给 UTType 判断是否属于 image（包含 rawImage）
+        if let type = UTType(filenameExtension: ext) {
+            return type.conforms(to: .image)
+        }
+        return false
+    }
     func load(urls: [URL]) {
         // 每次用户重新选择前，释放上一批作用域
         releaseHeldScopes()
 
         let fm = FileManager.default
-        let exts: Set<String> = ["png","jpg","jpeg","gif","tiff","bmp","heic","webp"]
+        //let exts: Set<String> = ["png","jpg","jpeg","gif","tiff","bmp","heic","webp"]
         var collected: [URL] = []
         var urlsToProcess = urls
         var initialSelectionURL: URL? = nil
@@ -91,14 +103,14 @@ final class ImageStore: ObservableObject {
                     )
                     for f in files {
                         let vals = try? f.resourceValues(forKeys: [.isRegularFileKey])
-                        if vals?.isRegularFile == true && exts.contains(f.pathExtension.lowercased()) {
+                        if vals?.isRegularFile == true && isSupportedImageURL(f) {
                             collected.append(f)
                         }
                     }
                 } catch {
                     print("Could not read contents of directory: \(url.path), error: \(error)")
                 }
-            } else if exts.contains(url.pathExtension.lowercased()) {
+            } else if isSupportedImageURL(url) {
                 collected.append(url)
             }
         }

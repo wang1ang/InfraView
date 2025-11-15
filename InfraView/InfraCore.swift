@@ -395,12 +395,22 @@ func decodeCGImageApplyingOrientation(_ url: URL) -> (CGImage?, CGSize, String?)
         kCGImageSourceShouldCache: false                  // 不提前缓存像素
     ]
 
-    guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
-        return (nil, .zero, "Unsupported image format.")
+    if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+        // 注意：经方向修正后，像素宽高可能互换（例如 90° 旋转）
+        let outSize = CGSize(width: cg.width, height: cg.height)
+        return (cg, outSize, nil)
     }
-    // 注意：经方向修正后，像素宽高可能互换（例如 90° 旋转）
-    let outSize = CGSize(width: cg.width, height: cg.height)
-    return (cg, outSize, nil)
+    // 🔁 fallback：直接拿原始 CGImage（有些 RAW/系统版本下面缩略图会失败）
+    let fullOpts: [CFString: Any] = [
+        kCGImageSourceShouldCache: false,
+        kCGImageSourceShouldAllowFloat: true
+    ]
+    if let full = CGImageSourceCreateImageAtIndex(src, 0, fullOpts as CFDictionary) {
+        let outSize = CGSize(width: full.width, height: full.height)
+        return (full, outSize, nil)
+    }
+
+    return (nil, .zero, "Unsupported image format.")
 }
 
 func loadCGForURL(_ url: URL) -> (CGImage?, CGSize, String?) {

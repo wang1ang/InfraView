@@ -46,7 +46,7 @@ struct ContentView: View {
         .toolbar { compactToolbar }
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.image, .webPCompat, .folder],
+            allowedContentTypes: [.image, .rawImage, .webPCompat, .folder],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result { store.load(urls: urls) }
