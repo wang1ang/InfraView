@@ -16,7 +16,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     let baseSize: CGSize
     let imagePixels: CGSize
     let viewerVM: ViewerViewModel
-    var onSelectionTap: ((CGPoint) -> Void)? = nil
 
     init(
             imagePixels: CGSize,
@@ -36,7 +35,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var scrollView: NSScrollView?
         var hostingView: NSHostingView<Content>?
         weak var viewerVM: ViewerViewModel?
-        var onSelectionTap: ((CGPoint) -> Void)?
         
         private var suppressMarquee = false
         
@@ -130,7 +128,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             guard factor != 1 else { return }
 
             let oldZ = max(0.01, getZ())
-            let newZ = min(10.0, max(0.05, oldZ * factor))
+            let newZ = min(20, max(0.05, oldZ * factor))
             if abs(newZ - oldZ) < 1e-3 { return }
 
             // 记录锚点（鼠标位置）相对 doc 的归一化坐标
@@ -223,7 +221,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             guard let path = selectionLayer.layer.path else { return }
             let pDoc = g.location(in: doc)  // overlay 坐标
             if path.contains(pDoc) {
-                    onSelectionTap?(pDoc)                // 交给外部放大
+                zoomToCurrentSelection()
             } else {
                 clearSelection(updateVM: true, restoreTitle: false)
             }
@@ -297,7 +295,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     endedResizingEdge()
                 }
                 if suppressMarquee {
-                    onSelectionTap?(p)
+                    // 在选框里拖动要不要放大？
+                    // zoomToCurrentSelection()
                     suppressMarquee = false
                     return
                 }
@@ -312,6 +311,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
 
         func ensureSelectionLayer(on doc: NSView) {
             selectionLayer.attachIfNeeded(to: doc)
+            // 双击全屏
             if cachedDoubleClickRecognizer == nil {
                 let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
                 dbl.numberOfClicksRequired = 2
@@ -319,6 +319,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 doc.addGestureRecognizer(dbl)
                 cachedDoubleClickRecognizer = dbl
             }
+            // 单击放大选区
             if cachedClickRecognizer == nil {
                 let click = NSClickGestureRecognizer(target: self, action: #selector(handleZoomClick(_:)))
                 doc.addGestureRecognizer(click)
@@ -414,7 +415,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         context.coordinator.scrollView = scrollView
         context.coordinator.hostingView = hostingView
         context.coordinator.viewerVM = viewerVM
-        context.coordinator.onSelectionTap = onSelectionTap
 
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize

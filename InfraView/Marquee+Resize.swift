@@ -105,6 +105,8 @@ extension PanMarqueeScrollView.Coordinator {
                 rPx.size.height = oldBottom - newTop
                 resizingEdge = .bottom
             }
+        default:
+            break
         }
         guard let snapped = drawSelectionOverlay(rPx) else { return }
         // 拖动中显示“Dragging Rect”

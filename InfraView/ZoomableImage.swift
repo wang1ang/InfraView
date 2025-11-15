@@ -116,7 +116,7 @@ struct ZoomableImage: View {
                     .onChanged { v in
                         //fitToScreen = false
                         print("set zoom in gesture")
-                        zoom = clamp(baseZoom * v, 0.25...10)
+                        zoom = clamp(baseZoom * v, 0.05...20)
                     }
                     .onEnded { _ in
                         baseZoom = zoom

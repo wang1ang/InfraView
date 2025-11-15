@@ -9,7 +9,7 @@ import AppKit
 import CoreGraphics
 
 extension PanMarqueeScrollView.Coordinator {
-    enum Edge { case left, right, top, bottom }
+    enum Edge { case left, right, top, bottom, inside }
 
     /// doc 点是否靠近选框边（用 px 空间判断，避免 zoom 影响）
     func hitTestEdge(pDoc: CGPoint, toleranceDoc: CGFloat = 6) -> Edge? {
@@ -18,8 +18,6 @@ extension PanMarqueeScrollView.Coordinator {
 
         let rDoc = m.pxToDoc(rPx)
         
-        // TODO: hit area
-
         if abs(pDoc.x - rDoc.minX) <= toleranceDoc,
            pDoc.y >= rDoc.minY - toleranceDoc, pDoc.y <= rDoc.maxY + toleranceDoc {
             return .left
@@ -35,6 +33,9 @@ extension PanMarqueeScrollView.Coordinator {
         if abs(pDoc.y - rDoc.minY) <= toleranceDoc,
            pDoc.x >= rDoc.minX - toleranceDoc, pDoc.x <= rDoc.maxX + toleranceDoc {
             return .bottom
+        }
+        if rDoc.contains(pDoc) {
+            return .inside
         }
         return nil
     }
@@ -63,6 +64,7 @@ extension PanMarqueeScrollView.Coordinator {
                 switch edge {
                 case .left, .right: NSCursor.resizeLeftRight.set()
                 case .top,  .bottom: NSCursor.resizeUpDown.set()
+                case .inside: NSCursor.magnifier.set()
                 }
             } else {
                 NSCursor.arrow.set()
@@ -70,6 +72,22 @@ extension PanMarqueeScrollView.Coordinator {
             return e
         }
     }
+}
+extension NSCursor {
+    static var magnifier: NSCursor = {
+        let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        guard let img = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
+                .withSymbolConfiguration(config)
+        else {
+            return NSCursor.arrow
+        }
+
+        // Hotspot 让光标尖端在图案中心偏左上，视觉更自然
+        let hot = NSPoint(x: img.size.width * 0.35,
+                          y: img.size.height * 0.35)
+
+        return NSCursor(image: img, hotSpot: hot)
+    }()
 }
 
 
