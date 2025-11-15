@@ -8,7 +8,7 @@ import AppKit
 extension PanMarqueeScrollView.Coordinator {
     /// 把像素坐标下的 rect 放大到视口（尽量铺满并居中）
     @MainActor
-    func zoomTo(rectPx: CGRect, padding: CGFloat = 1) {
+    func zoomTo(rectPx: CGRect) {
         guard rectPx.width > 1, rectPx.height > 1,
               let sv   = scrollView,
               let setZ = setZoom
@@ -21,15 +21,15 @@ extension PanMarqueeScrollView.Coordinator {
               imagePixels.width  > 0, imagePixels.height > 0
         else { return }
 
-        // 1. 计算合适的 zoom（让 rect 塞进视口，稍微留点边）
+        // 1. 计算 zoom（让 rect 正好塞进视口，不留 padding）
         let zx = (viewSize.width  * imagePixels.width)  / (rectPx.width  * baseSize.width)
         let zy = (viewSize.height * imagePixels.height) / (rectPx.height * baseSize.height)
-        var targetZoom = min(zx, zy) * padding
-        targetZoom = min(20.0, max(0.05, targetZoom))
+        var targetZoom = min(zx, zy)
+        targetZoom = min(20, max(0.05, targetZoom))
 
-        setZ(targetZoom)   // 改 SwiftUI 的 @Binding<CGFloat> zoom
+        setZ(targetZoom)
 
-        // 2. 下一帧再根据放大后的 doc 尺寸去滚动
+        // 2. 下一帧：根据放大后的 doc 尺寸滚动 + 重绘选框
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   let sv  = self.scrollView,
@@ -52,14 +52,23 @@ extension PanMarqueeScrollView.Coordinator {
 
             cv.scroll(to: origin)
             sv.reflectScrolledClipView(cv)
+
+            // 如果当前有选框：按像素选区重算一遍 overlay（保持和图片对齐）
+            if let rPx = self.selectionLayer.currentSelectionPx {
+                let originDoc = m.pxToDoc(rPx.origin)
+                let sizeDoc   = CGSize(width: rPx.size.width / m.sx,
+                                       height: rPx.size.height / m.sy)
+                let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
+                self.selectionLayer.update(rectInDoc: rDoc)
+            }
         }
     }
 
     /// 便捷：对当前选框 zoom-to-fit
     @MainActor
-    func zoomToCurrentSelection(padding: CGFloat = 1) {
+    func zoomToCurrentSelection() {
         guard let rPx = selectionLayer.currentSelectionPx else { return }
-        zoomTo(rectPx: rPx, padding: padding)
+        zoomTo(rectPx: rPx)
         
         clearSelection(updateVM: true, restoreTitle: true)
     }
