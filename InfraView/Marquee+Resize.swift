@@ -10,7 +10,7 @@ import AppKit
 
 extension PanMarqueeScrollView.Coordinator {
     /// 将 px 矩形提交到 overlay（统一在这里 snap）
-    func commitSelectionPx(_ rPx: CGRect) -> CGRect? {
+    func drawSelectionOverlay(_ rPx: CGRect) -> CGRect? {
         guard let m = makeMapper() else { return nil }
         let snapped = m.quantizeAndClampPxRect(rPx)                     // ← 量化
         let rDoc = CGRect(origin: m.pxToDoc(snapped.origin),
@@ -23,10 +23,10 @@ extension PanMarqueeScrollView.Coordinator {
     }
     
     func finishSelectionPx(_ rPx: CGRect) {
-        guard let snapped = commitSelectionPx(rPx) else { return }
+        guard let snapped = drawSelectionOverlay(rPx) else { return }
         onFinished?(snapped)
         viewerVM?.updateSelection(rectPx: snapped)
-        showSelection(for: snapped)
+        showSelectionInTitle(for: snapped)
         selectionStartInDoc = nil
         lastMouseDownDocPoint = nil
         lastMarqueeLocationInCV = nil
@@ -38,7 +38,7 @@ extension PanMarqueeScrollView.Coordinator {
         // 显示当前选框状态
         
         if let rPx = selectionLayer.currentSelectionPx {
-            showDragging(for: rPx)
+            showDraggingInTitle(for: rPx)
         }
     }
     
@@ -106,9 +106,9 @@ extension PanMarqueeScrollView.Coordinator {
                 resizingEdge = .bottom
             }
         }
-        guard let snapped = commitSelectionPx(rPx) else { return }
+        guard let snapped = drawSelectionOverlay(rPx) else { return }
         // 拖动中显示“Dragging Rect”
-        showDragging(for: snapped)
+        showDraggingInTitle(for: snapped)
     }
 
     func endedResizingEdge() {
@@ -138,13 +138,5 @@ extension PanMarqueeScrollView.Coordinator {
         )
         ensureSelectionLayer(on: doc)
         finishSelectionPx(rectPx)
-    }
-    @MainActor
-    func handleCrop() {
-        guard let sv = scrollView, sv.window?.isKeyWindow == true else { return }
-        // 真正裁剪的是 VM
-        viewerVM?.cropSelection()
-        // UI 这边把虚线框清掉
-        clearSelection(updateVM: false, restoreTitle: true)
     }
 }

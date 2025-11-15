@@ -10,7 +10,7 @@ import AppKit
 extension PanMarqueeScrollView.Coordinator {
 
     /// 把 rectPx 转成整数并显示为 Dragging Rect
-    func showDragging(for rectPx: CGRect) {
+    func showDraggingInTitle(for rectPx: CGRect) {
         let x = Int(rectPx.origin.x.rounded())
         let y = Int(rectPx.origin.y.rounded())
         let w = Int(rectPx.size.width.rounded())
@@ -19,7 +19,7 @@ extension PanMarqueeScrollView.Coordinator {
     }
 
     /// 把 rectPx 转成整数并显示为 Selection
-    func showSelection(for rectPx: CGRect) {
+    func showSelectionInTitle(for rectPx: CGRect) {
         let x = Int(rectPx.origin.x.rounded())
         let y = Int(rectPx.origin.y.rounded())
         let w = Int(rectPx.size.width.rounded())

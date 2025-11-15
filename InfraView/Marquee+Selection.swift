@@ -83,7 +83,7 @@ extension PanMarqueeScrollView.Coordinator {
         selectionLayer.update(snapped: snapped)
         onChanged?(snapped.rectPx)
         if fireDragging {
-            showDragging(for: snapped.rectPx)
+            showDraggingInTitle(for: snapped.rectPx)
         }
     }
     func clearSelection(updateVM: Bool = true,
@@ -149,6 +149,14 @@ extension PanMarqueeScrollView.Coordinator {
             cv.scroll(to: origin)
             sv.reflectScrolledClipView(cv) // 更新滑块位置
         }
+    }
+    @MainActor
+    func handleCrop() {
+        guard let sv = scrollView, sv.window?.isKeyWindow == true else { return }
+        // 真正裁剪的是 VM
+        viewerVM?.cropSelection()
+        // UI 这边把虚线框清掉
+        clearSelection(updateVM: false, restoreTitle: true)
     }
 }
 func signedSqrt(_ v: CGFloat) -> CGFloat {
