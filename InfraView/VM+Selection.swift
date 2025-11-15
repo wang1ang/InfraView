@@ -15,7 +15,7 @@ extension NSImage {
 }
 
 extension ViewerViewModel {
-    var activeSelectionRectPx: CGRect? {
+    private var activeSelectionRectPx: CGRect? {
         guard
             window?.isKeyWindow == true,          // 只响应当前 key window
             let r = selectionRectPx,
@@ -24,21 +24,25 @@ extension ViewerViewModel {
         else { return nil }
         return r
     }
+    private var activeCGImage: CGImage? {
+        if let cg = currentCGImage { return cg }
+        if let img = processedImage, let cg = img.cgImageSafe {
+            currentCGImage = cg
+            return cg
+        }
+        return nil
+    }
+    private func croppedImage(from rect: CGRect) -> CGImage? {
+        guard let cg = activeCGImage else { return nil }
+        return cg.cropping(to: rect)
+    }
     // ✅ 复制当前选区到剪贴板（如果有选区且有图像）
     @discardableResult
     func copySelectionToPasteboard() -> Bool{
         guard
             let rectPx = activeSelectionRectPx,
-            let img = processedImage
+            let cropped = croppedImage(from: rectPx)
         else { return false }
-
-        // 从 NSImage 拿 CGImage
-        var proposedRect = CGRect(origin: .zero, size: img.size)
-        guard let cg = img.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
-            return false
-        }
-
-        guard let cropped = cg.cropping(to: rectPx) else { return false }
 
         let subImage = NSImage(cgImage: cropped, size: .zero)
 
@@ -49,26 +53,16 @@ extension ViewerViewModel {
     }
     @discardableResult
     func cropSelection() -> Bool {
-        guard let rectPx = activeSelectionRectPx else { return false }
-
-        // 2. 确保有 currentCGImage
-        if currentCGImage == nil,
-           let img = processedImage,
-           let cg = img.cgImageSafe {
-            currentCGImage = cg
-        }
-        guard let cg = currentCGImage else { return false }
-
-        let cropRectCG = rectPx
+        guard
+            let rectPx = activeSelectionRectPx,
+            let cropped = croppedImage(from: rectPx)
+        else { return false }
 
         // 3. 撤销栈
         pushUndoSnapshot()
 
-        // 4. 裁剪
-        guard let newCG = cg.cropping(to: cropRectCG) else { return false }
-
         DispatchQueue.main.async {
-            self.applyImage(newCG)
+            self.applyImage(cropped)
             // will be done in coordinator:
             //self.selectionRectPx = nil
         }
@@ -77,17 +71,10 @@ extension ViewerViewModel {
     @discardableResult
     func eraseSelection() -> Bool {
         guard let rectPx = activeSelectionRectPx else { return false }
+        guard let cg = activeCGImage else { return false }
 
         pushUndoSnapshot()
         
-        // 优先用 currentCGImage，如果没有就从 processedImage 拿一次
-        if currentCGImage == nil,
-            let img = processedImage,
-            let cg = img.cgImageSafe {
-             currentCGImage = cg
-        }
-        guard let cg = currentCGImage else { return false }
-
         let width  = cg.width
         let height = cg.height
 
@@ -119,12 +106,10 @@ extension ViewerViewModel {
 
         guard let newCG = ctx.makeImage() else { return false }
 
-        //let newNSImage = NSImage(cgImage: newCG, size: srcImage.size)
-
         DispatchQueue.main.async {
-            //self.processedImage = newNSImage
             self.applyImage(newCG)
-            self.selectionRectPx = nil   // 清掉选区
+            // 清不掉
+            //self.selectionRectPx = nil
             // 如果你有别的地方依赖选区变化，这里可以发通知或调用回调
         }
         return true
