@@ -60,7 +60,6 @@ struct InfraViewApp: App {
                 Button("Crop") {
                     NotificationCenter.default.post(name: .infraCrop, object: nil)
                 }
-
             }
         }
     }

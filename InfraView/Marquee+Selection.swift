@@ -12,26 +12,28 @@ extension PanMarqueeScrollView.Coordinator {
     enum Edge { case left, right, top, bottom }
 
     /// doc 点是否靠近选框边（用 px 空间判断，避免 zoom 影响）
-    func hitTestEdge(pDoc: CGPoint, tolerancePx: CGFloat = 6) -> Edge? {
+    func hitTestEdge(pDoc: CGPoint, toleranceDoc: CGFloat = 6) -> Edge? {
         guard let rPx = selectionLayer.currentSelectionPx,
               let m = makeMapper() else { return nil }
 
-        let pPx = m.docToPx(pDoc)
+        let rDoc = m.pxToDoc(rPx)
+        
+        // TODO: hit area
 
-        if abs(pPx.x - rPx.minX) <= tolerancePx,
-           pPx.y >= rPx.minY - tolerancePx, pPx.y <= rPx.maxY + tolerancePx {
+        if abs(pDoc.x - rDoc.minX) <= toleranceDoc,
+           pDoc.y >= rDoc.minY - toleranceDoc, pDoc.y <= rDoc.maxY + toleranceDoc {
             return .left
         }
-        if abs(pPx.x - rPx.maxX) <= tolerancePx,
-           pPx.y >= rPx.minY - tolerancePx, pPx.y <= rPx.maxY + tolerancePx {
+        if abs(pDoc.x - rDoc.maxX) <= toleranceDoc,
+           pDoc.y >= rDoc.minY - toleranceDoc, pDoc.y <= rDoc.maxY + toleranceDoc {
             return .right
         }
-        if abs(pPx.y - rPx.maxY) <= tolerancePx,
-           pPx.x >= rPx.minX - tolerancePx, pPx.x <= rPx.maxX + tolerancePx {
+        if abs(pDoc.y - rDoc.maxY) <= toleranceDoc,
+           pDoc.x >= rDoc.minX - toleranceDoc, pDoc.x <= rDoc.maxX + toleranceDoc {
             return .top
         }
-        if abs(pPx.y - rPx.minY) <= tolerancePx,
-           pPx.x >= rPx.minX - tolerancePx, pPx.x <= rPx.maxX + tolerancePx {
+        if abs(pDoc.y - rDoc.minY) <= toleranceDoc,
+           pDoc.x >= rDoc.minX - toleranceDoc, pDoc.x <= rDoc.maxX + toleranceDoc {
             return .bottom
         }
         return nil

@@ -477,6 +477,7 @@ struct PixelMapper {
 
     func docToPx(_ p: CGPoint) -> CGPoint { .init(x: p.x * sx, y: p.y * sy) }
     func pxToDoc(_ p: CGPoint) -> CGPoint { .init(x: p.x / sx, y: p.y / sy) }
+    func pxToDoc(_ r: CGRect) -> CGRect { return CGRect(x: r.minX / sx, y: r.minY / sy, width: r.width / sx, height: r.height / sy) }
 
     // MARK: - Doc 边界
     func clampDocPoint(_ p: CGPoint) -> CGPoint {
