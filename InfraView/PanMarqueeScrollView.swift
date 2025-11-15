@@ -61,6 +61,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var mouseMoveMonitor: Any?
         var rotateObserver: NSObjectProtocol?
         var selectAllObserver: NSObjectProtocol?
+        var cropObserver: NSObjectProtocol?
         
         var resizingEdge: Edge?
         
@@ -71,7 +72,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 queue: .main
                 ) { [weak self] _ in
                     Task { @MainActor [weak self] in
-                        guard let self else { return }
+                        guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
                         self.clearSelection(updateVM: true, restoreTitle: true)
                     }
             }
@@ -84,6 +85,15 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     self?.handleSelectAll()
                 }
             }
+            cropObserver = NotificationCenter.default.addObserver(
+                forName: .infraCrop,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                Task { @MainActor [weak self] in
+                    self?.handleCrop()
+                }
+            }
         }
         deinit {
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
@@ -91,6 +101,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
             if let o = rotateObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = selectAllObserver  { NotificationCenter.default.removeObserver(o) }
+            if let o = cropObserver  { NotificationCenter.default.removeObserver(o) }
         }
         var lastMouseDownDocPoint: NSPoint? // 框的起点，由 mouse down 记录
         var lastMarqueeLocationInCV: NSPoint? // 判断拖动方向

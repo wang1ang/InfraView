@@ -139,4 +139,12 @@ extension PanMarqueeScrollView.Coordinator {
         ensureSelectionLayer(on: doc)
         finishSelectionPx(rectPx)
     }
+    @MainActor
+    func handleCrop() {
+        guard let sv = scrollView, sv.window?.isKeyWindow == true else { return }
+        // 真正裁剪的是 VM
+        viewerVM?.cropSelection()
+        // UI 这边把虚线框清掉
+        clearSelection(updateVM: false, restoreTitle: true)
+    }
 }

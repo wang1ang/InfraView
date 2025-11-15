@@ -176,10 +176,6 @@ struct ContentView: View {
             guard viewerVM.window?.isKeyWindow == true else { return }
             viewerVM.redo()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .infraCrop)) { _ in
-            guard viewerVM.window?.isKeyWindow == true else { return }
-            viewerVM.cropSelection()
-        }
     }
 
     // 工具栏绑定改到 viewerVM
