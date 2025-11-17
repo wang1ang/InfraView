@@ -116,53 +116,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var lastMarqueeLocationInCV: NSPoint? // 判断拖动方向
 
         let windowTitle = WindowTitle()
-        
-        func handleWheel(_ e: NSEvent) {
-            guard let sv = scrollView,
-                  e.hasCommand,
-                  let getZ = getZoom,
-                  let setZ = setZoom,
-                  let doc = sv.documentView else { return }
-
-            let factor: CGFloat = e.scrollingDeltaY > 0 ? 1.1 : (e.scrollingDeltaY < 0 ? 1/1.1 : 1)
-            guard factor != 1 else { return }
-
-            let oldZ = max(0.01, getZ())
-            let newZ = min(20, max(0.05, oldZ * factor))
-            if abs(newZ - oldZ) < 1e-3 { return }
-
-            // 记录锚点（鼠标位置）相对 doc 的归一化坐标
-            let cv = sv.contentView
-            let mouseInWin = e.locationInWindow
-            let mouseInCV  = cv.convert(mouseInWin, from: nil)
-            let mouseInDoc = cv.convert(mouseInCV, to: doc)
-            let docW = max(doc.bounds.width, 1), docH = max(doc.bounds.height, 1)
-            let anchorN = CGPoint(x: mouseInDoc.x / docW, y: mouseInDoc.y / docH)
-
-
-            // 更新 zoom → 更新 document 尺寸
-            setZ(newZ)
-            
-            // 根据“锚点”计算新原点
-            guard let doc2 = sv.documentView else { return }
-            let target = NSPoint(x: anchorN.x * doc2.bounds.width,
-                                 y: anchorN.y * doc2.bounds.height)
-            var newOrigin = NSPoint(x: target.x - cv.bounds.width / 2,
-                                    y: target.y - cv.bounds.height / 2)
-            newOrigin = clampOrigin(newOrigin, cv: cv, doc: doc2)
-
-            //cv.scroll(to: newOrigin)
-            sv.reflectScrolledClipView(cv)
-            
-            // 缩放后重绘选框
-            if let rPx = selectionLayer.currentSelectionPx, let m = makeMapper() {
-                let originDoc = m.pxToDoc(rPx.origin)
-                let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
-                let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
-                selectionLayer.update(rectInDoc: rDoc)
-            }
-
-        }
 
         enum PanMode { case none, scroll, moveSelection }
         var panMode: PanMode = .none
@@ -504,13 +457,12 @@ func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
 
 
 
-struct PixelMapper {
-    let baseSize: CGSize      // 图像“基准显示”尺寸（pt）
-    let zoom: CGFloat         // 当前缩放
-    let imagePixels: CGSize   // 图像像素尺寸（px）
 
-    var contentSize: CGSize { .init(width: baseSize.width * zoom,
-                                    height: baseSize.height * zoom) }
+struct PixelMapper {
+    let docSize: CGSize      // 实际 documentView 的大小（pt）
+    let imagePixels: CGSize  // 图像像素尺寸（px）
+
+    var contentSize: CGSize { docSize }
 
     var sx: CGFloat { max(0.0001, imagePixels.width  / max(0.0001, contentSize.width))  }
     var sy: CGFloat { max(0.0001, imagePixels.height / max(0.0001, contentSize.height)) }
@@ -536,7 +488,7 @@ struct PixelMapper {
         y1 = max(0, min(y1, imagePixels.height))
         return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
     }
-    
+
     func snapDocRect(startDoc s: CGPoint, endDoc e: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
         let sPx = docToPx(s), ePx = docToPx(e)
         let rawPx = CGRect(x: min(sPx.x, ePx.x),
@@ -549,12 +501,21 @@ struct PixelMapper {
         return (rDoc, rPx)
     }
 }
+
+
 extension PanMarqueeScrollView.Coordinator {
     func makeMapper() -> PixelMapper? {
-        guard let getZ = getZoom else { return nil }
-        return PixelMapper(baseSize: baseSize, zoom: getZ(), imagePixels: imagePixels)
+        guard let sv = scrollView,
+              let doc = sv.documentView
+        else { return nil }
+
+        return PixelMapper(
+            docSize: doc.bounds.size,
+            imagePixels: imagePixels
+        )
     }
 }
+
 extension NSEvent {
     var hasCommand: Bool {
         //e.modifierFlags.contains(.command),
