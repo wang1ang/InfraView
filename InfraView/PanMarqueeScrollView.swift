@@ -459,10 +459,14 @@ func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
 
 
 struct PixelMapper {
-    let docSize: CGSize      // 实际 documentView 的大小（pt）
+    let baseSize: CGSize     // 缩放前的尺寸
+    let zoom: CGFloat        // 当前缩放
+    //let docSize: CGSize    // 实际 documentView 的大小，经常来不及刷新，不用了
     let imagePixels: CGSize  // 图像像素尺寸（px）
 
-    var contentSize: CGSize { docSize }
+    // 现算，免得 docSize 还拿的是老的
+    var contentSize: CGSize { .init(width: baseSize.width * zoom,
+                                    height: baseSize.height * zoom) }
 
     var sx: CGFloat { max(0.0001, imagePixels.width  / max(0.0001, contentSize.width))  }
     var sy: CGFloat { max(0.0001, imagePixels.height / max(0.0001, contentSize.height)) }
@@ -502,17 +506,10 @@ struct PixelMapper {
     }
 }
 
-
 extension PanMarqueeScrollView.Coordinator {
     func makeMapper() -> PixelMapper? {
-        guard let sv = scrollView,
-              let doc = sv.documentView
-        else { return nil }
-
-        return PixelMapper(
-            docSize: doc.bounds.size,
-            imagePixels: imagePixels
-        )
+        guard let getZ = getZoom else { return nil }
+        return PixelMapper(baseSize: baseSize, zoom: getZ(), imagePixels: imagePixels)
     }
 }
 
