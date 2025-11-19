@@ -18,7 +18,7 @@ final class ViewerViewModel: ObservableObject {
     var currentCGImage: CGImage?          // 当前图
     var undoStack: [CGImage] = []         // 撤销栈
     var redoStack: [CGImage] = []         // 重做栈
-    let maxHistory = 3                    // 最多保留多少步
+    let maxHistory = 5                    // 最多保留多少步
 
     
     public var window: NSWindow?
@@ -62,20 +62,21 @@ final class ViewerViewModel: ObservableObject {
         }
         // 没有 processedImage 直接返回
         guard let img = processedImage else { return }
+        let basePt = naturalPoint()
 
         imageAutoFit = defaultAutoFit(fitMode: currentFitMode)
         switch reason {
         case .newImage:
             // restore zoom
             zoom = 1
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(basePt, window: window) {
                 // pre-set zoom for resizing window
-                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
+                zoom = sizer.desktopFitScale(for: basePt, in: window)
             }
         case .fitToggle:
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(basePt, window: window) {
                 // pre-set zoom for resizing window
-                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
+                zoom = sizer.desktopFitScale(for: basePt, in: window)
             }
             if mode == .doNotFit || mode == .fitWindowToImage {
                 zoom = 1
@@ -86,14 +87,14 @@ final class ViewerViewModel: ObservableObject {
         case .layout:
             // layout change (e.g. status bar):
             //   keep the zoom
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
-                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(basePt, window: window) {
+                zoom = sizer.desktopFitScale(for: basePt, in: window)
             }
             break
         }
         print("drive:", reason, currentFitMode, zoom, imageAutoFit)
         // 统一计算目标内容尺寸并调窗口
-        let targetSize = desiredContentSize(for: img, mode: currentFitMode, window: window)
+        let targetSize = desiredContentSize(for: basePt, mode: currentFitMode, window: window)
         print("targetSize:", targetSize)
         
         var shouldResizeWindow = currentFitMode == .fitWindowToImage || currentFitMode == .fitOnlyBigToDesktop
@@ -118,17 +119,17 @@ final class ViewerViewModel: ObservableObject {
         return window.backingScaleFactor
     }
     func naturalPoint() -> CGSize {
-        let scale = getFactor()
-        return CGSize(width: (pixelSize?.width ?? 0) / scale, height: (pixelSize?.height ?? 0) / scale)
+        let factor = getFactor()
+        return CGSize(width: (pixelSize?.width ?? 0) / factor, height: (pixelSize?.height ?? 0) / factor)
     }
     func fitImageToWindow() {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         guard let img = processedImage else { return }
         if !imageAutoFit { return }
         print("fit to screen")
-        let naturalPt = naturalPoint()
-        let baseW = max(naturalPt.width, 1)
-        let baseH = max(naturalPt.height, 1)
+        let basePt = naturalPoint()
+        let baseW = max(basePt.width, 1)
+        let baseH = max(basePt.height, 1)
         let targetSize = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
         //let targetSize = sizer.fittedContentSize(for: img, in: window)
         let statusbar = StatusBarStore.shared.height
@@ -191,42 +192,39 @@ final class ViewerViewModel: ObservableObject {
     }
 
     // 统一把“要多大”和“是否滚动条感知”算出来
-    private func desiredContentSize(for img: NSImage, mode: FitMode, window: NSWindow) -> CGSize {
-        // targetSize
+    private func desiredContentSize(for basePt: CGSize, mode: FitMode, window: NSWindow) -> CGSize {
         switch mode {
         case .fitImageToWindow:
-            return sizer.fittedContentSize(for: naturalPoint(), in: window)
+            return sizer.fittedContentSize(for: basePt, in: window)
 
         case .fitOnlyBigToWindow:
-            if isBigInCurrentWindow(img, window: window) {
-                return sizer.fittedContentSize(for: naturalPoint(), in: window)
+            if isBigInCurrentWindow(for: basePt, window: window) {
+                return sizer.fittedContentSize(for: basePt, in: window)
             } else {
                 // 小图 → 用 1x 大小（带屏幕上限）
-                return scaledContentSize(for: naturalPoint(), scale: 1, window: window)
+                return scaledContentSize(for: basePt, scale: 1, window: window)
             }
         case .fitOnlyBigToDesktop:
-            let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
+            let sz = alignedScaledSizeToBacking(for: basePt, scale: zoom, window: window)
             return sz
         case .fitWindowToImage:
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
             //let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
             //return sz
-            return scaledContentSize(for: naturalPoint(), scale: zoom, window: window)
+            return scaledContentSize(for: basePt, scale: zoom, window: window)
 
         case .doNotFit:
             // 同上，但明确不自动调整：也给窗口一个合理大小（你也可以改为保持窗口不变）
-            return scaledContentSize(for: naturalPoint(), scale: zoom, window: window)
+            return scaledContentSize(for: basePt, scale: zoom, window: window)
         }
     }
-    private func isBigInCurrentWindow(_ img: NSImage, window: NSWindow) -> Bool {
-        let natural = naturalPoint()
+    private func isBigInCurrentWindow(for basePt: CGSize, window: NSWindow) -> Bool {
         let layout = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
-        return natural.width > layout.width || natural.height > layout.height
+        return basePt.width > layout.width || basePt.height > layout.height
     }
-    private func alignedScaledSizeToBacking(_ img: NSImage, scale: CGFloat, window: NSWindow) -> CGSize {
-        let base = naturalPoint()
-        let w = base.width  * scale
-        let h = base.height * scale
+    private func alignedScaledSizeToBacking(for basePt: CGSize, scale: CGFloat, window: NSWindow) -> CGSize {
+        let w = basePt.width  * scale
+        let h = basePt.height * scale
         let s = window.backingScaleFactor
         // ZoomableImage 用的是 floor，所以这里也用 floor，避免窗口比内容“略大”
         return CGSize(width: floor(w * s) / s,
@@ -246,7 +244,6 @@ final class ViewerViewModel: ObservableObject {
         resetHistoryForNewImage(from: rotated.image)
         
         drive(reason: .fitToggle, mode: fitMode)
-        //onScaleChanged?(Int(round(zoom * 100)))
     }
     
     func updateSelection(rectPx: CGRect?) {
