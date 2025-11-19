@@ -164,7 +164,7 @@ final class WindowSizerImpl: WindowSizer {
     private func currentWindow() -> NSWindow? {
         NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible }
     }
-    private func maxAvailableContentSize(_ window: NSWindow) -> CGSize {
+    public func maxAvailableContentSize(_ window: NSWindow) -> CGSize {
         // 1) 屏幕的可用矩形（已扣除菜单栏/Dock）
         let vf = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
 

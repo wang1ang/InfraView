@@ -25,7 +25,7 @@ final class ViewerViewModel: ObservableObject {
 
     private var baseImage: NSImage?
     public var currentURL: URL?
-    private var currentFitMode: FitMode = .fitOnlyBigToWindow
+    public var currentFitMode: FitMode = .fitOnlyBigToWindow
     
     // 依赖注入
     private let repo: ImageRepository // 磁盘加载
