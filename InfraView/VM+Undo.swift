@@ -35,17 +35,12 @@ extension ViewerViewModel {
     }*/
     func applyImage(_ cg: CGImage) {
         currentCGImage = cg
-
-        // 用 CGImage 自己的像素尺寸来当显示尺寸，不再继承旧图的 size
-        // 如果想考虑 Retina，可以除以屏幕 scale：
-        let scale = NSScreen.main?.backingScaleFactor ?? 1.0
-        let size = NSSize(
-            width:  CGFloat(cg.width)  / scale,
-            height: CGFloat(cg.height) / scale
-        )
-
+        let w = cg.width; let h = cg.height
+        let size = NSSize(width: w, height: h)
         let nsImage = NSImage(cgImage: cg, size: size)
         processedImage = nsImage
+        let factor = getFactor()
+        pixelSize = NSSize(width: w, height: h)
     }
 
 

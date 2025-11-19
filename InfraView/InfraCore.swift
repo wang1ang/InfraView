@@ -79,18 +79,17 @@ enum BookmarkStore {
 
 // MARK: - WindowSizer（把窗口/滚动条/visibleFrame计算集中）
 protocol WindowSizer {
-    func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize
-    func desktopFitScale(for image: NSImage, in window: NSWindow) -> CGFloat
-    func isBigOnDesktop(_ image: NSImage, window: NSWindow) -> Bool
+    func fittedContentSize(for image: CGSize, in window: NSWindow) -> CGSize
+    func desktopFitScale(for image: CGSize, in window: NSWindow) -> CGFloat
+    func isBigOnDesktop(_ natural: CGSize, window: NSWindow) -> Bool
     func resizeWindow(toContent size: CGSize, mode: FitMode)
 }
 
 @MainActor
 final class WindowSizerImpl: WindowSizer {
 
-    func fittedContentSize(for image: NSImage, in window: NSWindow) -> CGSize { // 按当前窗口计算可视面积
+    func fittedContentSize(for base: CGSize, in window: NSWindow) -> CGSize { // 按当前窗口计算可视面积
 
-        let base = naturalPointSize(image)
         // 最大 contentLayout 尺寸（无余量）
         var avail = maxAvailableContentSize(window)
 
@@ -125,9 +124,8 @@ final class WindowSizerImpl: WindowSizer {
                       height: floor(base.height * scale))
 
     }
-    func desktopFitScale(for image: NSImage, in window: NSWindow) -> CGFloat {
+    func desktopFitScale(for base: CGSize, in window: NSWindow) -> CGFloat {
         // 按屏幕大小计算可视面积
-        let base = naturalPointSize(image)
         let avail = maxAvailableContentSize(window)
         /*
         let (vBar, hBar) = legacyScrollbarThickness()
@@ -149,8 +147,7 @@ final class WindowSizerImpl: WindowSizer {
         return min(avail.width / max(base.width, 1),
                    avail.height / max(base.height, 1))
     }
-    func isBigOnDesktop(_ img: NSImage, window: NSWindow) -> Bool { /* 用 isBigOnThisDesktop + maxAvailableContentSize */
-        let natural = naturalPointSize(img)
+    func isBigOnDesktop(_ natural: CGSize, window: NSWindow) -> Bool { /* 用 isBigOnThisDesktop + maxAvailableContentSize */
         let maxLayout = maxAvailableContentSize(window)
         return natural.width > maxLayout.width || natural.height > maxLayout.height
     }
@@ -217,30 +214,6 @@ final class WindowZoomHelper: NSObject, NSWindowDelegate {
     }
 }
 /*
-@MainActor
-func displayScaleFactor() -> CGFloat {
-    if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
-       let s = w.screen { return s.backingScaleFactor }
-    return NSScreen.main?.backingScaleFactor ?? 2.0
-}
-*/
-func displayScaleFactor() -> CGFloat {
-    if Thread.isMainThread {
-        return displayScaleFactorImpl()
-    } else {
-        return DispatchQueue.main.sync {
-            displayScaleFactorImpl()
-        }
-    }
-}
-
-private func displayScaleFactorImpl() -> CGFloat {
-    if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }),
-       let s = w.screen {
-        return s.backingScaleFactor
-    }
-    return NSScreen.main?.backingScaleFactor ?? 2.0
-}
 func pixelSize(_ img: NSImage) -> CGSize {
     var maxW = 0, maxH = 0
     for rep in img.representations where rep.pixelsWide > 0 && rep.pixelsHigh > 0 { maxW = max(maxW, rep.pixelsWide); maxH = max(maxH, rep.pixelsHigh) }
@@ -248,24 +221,31 @@ func pixelSize(_ img: NSImage) -> CGSize {
         maxW = max(maxW, b.pixelsWide); maxH = max(maxH, b.pixelsHigh)
     }
     if maxW == 0 || maxH == 0 {
-        let sf = displayScaleFactor(); let w = Int(img.size.width * sf), h = Int(img.size.height * sf)
-        if w > 0 && h > 0 { maxW = w; maxH = h }
+        print ("no factor used!!!")
+        return img.size
     }
     return CGSize(width: CGFloat(maxW), height: CGFloat(maxH))
 }
-
-func naturalPointSize(_ img: NSImage) -> CGSize {
-    let px = pixelSize(img); let sf = displayScaleFactor(); return CGSize(width: px.width / sf, height: px.height / sf)
+*/
+/*
+func naturalPointSize(_ img: NSImage, window: NSWindow) -> CGSize {
+    let scale = window.screen?.backingScaleFactor ?? 1.0
+    print("naturalPointSize.scale: \(scale)")
+    return naturalPointSize(img, scale: scale)
 }
-
+func naturalPointSize(_ img: NSImage, scale: CGFloat) -> CGSize {
+    let px = pixelSize(img)
+    return CGSize(width: px.width / scale,
+                  height: px.height / scale)
+}
+*/
 func legacyScrollbarThickness() -> (vertical: CGFloat, horizontal: CGFloat) {
     if NSScroller.preferredScrollerStyle == .overlay { return (0, 0) }
     let t = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy); return (vertical: t, horizontal: t)
 }
 
-func scaledContentSize(for image: NSImage, scale: CGFloat) -> CGSize {
-    let base = naturalPointSize(image)
-    let vf = (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
+func scaledContentSize(for base: CGSize, scale: CGFloat, window: NSWindow) -> CGSize {
+    let vf = window.screen?.visibleFrame ?? (NSApp.keyWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame) ?? .zero
     let maxW = max(vf.width, 200)
     let maxH = max(vf.height, 200)
     return CGSize(width: ceil(min(base.width * scale, maxW)), height: ceil(min(base.height * scale, maxH)))

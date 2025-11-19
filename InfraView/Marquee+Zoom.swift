@@ -124,6 +124,19 @@ extension PanMarqueeScrollView.Coordinator {
         var y0: CGFloat, h: CGFloat
         let targetRectPx: CGRect
 
+        print(viewerVM?.currentFitMode ?? "")
+        if let fitMode = viewerVM?.currentFitMode,
+           [.fitOnlyBigToDesktop, .fitWindowToImage].contains(fitMode),
+           let win = viewerVM?.window ?? keyWindowOrFirstVisible()
+        {
+            let sizer = WindowSizerImpl()
+            let maxLayout = sizer.maxAvailableContentSize(win)
+            if maxLayout.width > doc.bounds.width || maxLayout.height > doc.bounds.height {
+                let z = getZoom?() ?? 1
+                setZoom?(zoomIn ? z * 1.1 : z / 1.1)
+                return
+            }
+        }
         if zoomIn {
             // ---------- 放大：视口 90%，限制在「当前可见区域」内 ----------
             let scale: CGFloat = 1/1.1

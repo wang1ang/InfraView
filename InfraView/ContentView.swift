@@ -356,7 +356,6 @@ struct ZoomedContent: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: w, height: h)
-            //.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
     var body: some View {
@@ -387,34 +386,6 @@ struct AnimatedImageView: NSViewRepresentable {
 }
 
 // MARK: - Helpers
-
-
-/*
-private func loadImageWithError(url: URL) -> (NSImage?, String?) {
-    let access = url.startAccessingSecurityScopedResource()
-    defer { if access { url.stopAccessingSecurityScopedResource() } }
-
-    guard FileManager.default.fileExists(atPath: url.path) else { return (nil, "File does not exist.") }
-    guard FileManager.default.isReadableFile(atPath: url.path) else { return (nil, "File cannot be read.") }
-
-    // 后台线程安全：先用 ImageIO 得到已修正方向的 CGImage + 像素尺寸
-    let (cgOpt, pixelSize, err) = decodeCGImageApplyingOrientation(url)
-    guard let cg = cgOpt else { return (nil, err ?? "Unsupported image format.") }
-
-    // 为了和你现有 naturalPointSize/像素→点的逻辑一致，这里给 NSImage 设一个合理的 point 尺寸：
-    // 取屏幕 scale（Retina=2），用 像素/scale 作为点尺寸；这样不会“看起来变大/变小”
-    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-    let pointSize = NSSize(width: pixelSize.width / scale, height: pixelSize.height / scale)
-
-    // 这一步最好在主线程创建；如果此函数在后台调用，外层回到主线程再包 NSImage
-    let img = NSImage(cgImage: cg, size: pointSize)
-    return (img, nil)
-}
-*/
-
-
-
-
 
 
 struct Placeholder: View {

@@ -141,29 +141,32 @@ final class ImageStore: ObservableObject {
 
 // MARK: - ImageRepository（把解码独立）
 protocol ImageRepository {
-    func load(at url: URL) throws -> (image: NSImage, pixelSize: CGSize)
+    func load(at url: URL) throws -> (cgImage: CGImage, pixelSize: CGSize)
 }
 
 final class ImageRepositoryImpl: ImageRepository {
-    func load(at url: URL) throws -> (image: NSImage, pixelSize: CGSize) {
+    func load(at url: URL) throws -> (cgImage: CGImage, pixelSize: CGSize) {
         // 直接使用你现有 decodeCGImageApplyingOrientation/loadCGForURL 的逻辑拼装
         let (cgOpt, px, err) = loadCGForURL(url)      // 从下方 Helpers 复用
         guard let cg = cgOpt else { throw NSError(domain: "InfraView", code: 2, userInfo: [NSLocalizedDescriptionKey: err ?? "Unsupported"]) }
-        let scale = displayScaleFactor()
-        let pt = NSSize(width: px.width/scale, height: px.height/scale)
-        return (NSImage(cgImage: cg, size: pt), px)
+        return (cg, px)
     }
 }
 
 // MARK: - 轻量 LRU 缓存 + 预加载
+struct LoadedImage {
+    let image: NSImage
+    let pixelSize: CGSize
+}
+
 final class ImageCache {
     // ⚠️ 约定：仅在主线程读写（调用方已在 MainActor 切回主线程）
-    private var dict: [URL:NSImage] = [:]
+    private var dict: [URL:LoadedImage] = [:]
     private var order: [URL] = []
     private let cap: Int
     init(capacity: Int = 8) { self.cap = capacity }
-    func get(_ u: URL) -> NSImage? { dict[u] }
-    func set(_ u: URL, _ img: NSImage) {
+    func get(_ u: URL) -> LoadedImage? { dict[u] }
+    func set(_ u: URL, _ img: LoadedImage) {
         dict[u] = img; order.removeAll{ $0==u }; order.append(u)
         while order.count > cap { dict.removeValue(forKey: order.removeFirst()) }
     }
@@ -182,8 +185,9 @@ final class ImagePreloader {
             let u = urls[i]
             if cache.get(u) == nil {
                 DispatchQueue.global(qos: .background).async {
-                    if let (img, _) = try? self.repo.load(at: u) {
-                        DispatchQueue.main.async { self.cache.set(u, img) }
+                    if let (cg, px) = try? self.repo.load(at: u) {
+                        let nsImage = NSImage(cgImage: cg, size: px)
+                        DispatchQueue.main.async { self.cache.set(u, LoadedImage(image: nsImage, pixelSize: px)) }
                     }
                 }
             }

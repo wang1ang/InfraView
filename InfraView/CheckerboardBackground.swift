@@ -2,6 +2,7 @@ import SwiftUI
 
 
 struct CheckerboardBackground: View {
+    @Environment(\.displayScale) private var displayScale
     var cell: CGFloat = 12
     var c1: Color = Color(NSColor.windowBackgroundColor) // white
     var c2: Color = Color.white.opacity(0.5) // gray
@@ -9,7 +10,7 @@ struct CheckerboardBackground: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            let scale = NSScreen.main?.backingScaleFactor ?? 2
+            let scale = displayScale
             let cellPx = max(1, Int(cell * scale))
             let cellPt = CGFloat(cellPx) / scale
 

@@ -24,6 +24,7 @@ final class ViewerViewModel: ObservableObject {
     public var window: NSWindow?
 
     private var baseImage: NSImage?
+    @Published public var pixelSize: CGSize?
     public var currentURL: URL?
     public var currentFitMode: FitMode = .fitOnlyBigToWindow
     
@@ -66,14 +67,14 @@ final class ViewerViewModel: ObservableObject {
         case .newImage:
             // restore zoom
             zoom = 1
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
                 // pre-set zoom for resizing window
-                zoom = sizer.desktopFitScale(for: img, in: window)
+                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
             }
         case .fitToggle:
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
                 // pre-set zoom for resizing window
-                zoom = sizer.desktopFitScale(for: img, in: window)
+                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
             }
             if mode == .doNotFit || mode == .fitWindowToImage {
                 zoom = 1
@@ -84,8 +85,8 @@ final class ViewerViewModel: ObservableObject {
         case .layout:
             // layout change (e.g. status bar):
             //   keep the zoom
-            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(img, window: window) {
-                zoom = sizer.desktopFitScale(for: img, in: window)
+            if mode == .fitOnlyBigToDesktop && sizer.isBigOnDesktop(naturalPoint(), window: window) {
+                zoom = sizer.desktopFitScale(for: naturalPoint(), in: window)
             }
             break
         }
@@ -111,12 +112,20 @@ final class ViewerViewModel: ObservableObject {
         }
         fitImageToWindow()
     }
+    func getFactor() -> CGFloat {
+        guard let window = self.window ?? keyWindowOrFirstVisible() else { return 1.0}
+        return window.backingScaleFactor
+    }
+    func naturalPoint() -> CGSize {
+        let scale = getFactor()
+        return CGSize(width: (pixelSize?.width ?? 0) / scale, height: (pixelSize?.height ?? 0) / scale)
+    }
     func fitImageToWindow() {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         guard let img = processedImage else { return }
         if !imageAutoFit { return }
         print("fit to screen")
-        let naturalPt = naturalPointSize(img)
+        let naturalPt = naturalPoint()
         let baseW = max(naturalPt.width, 1)
         let baseH = max(naturalPt.height, 1)
         let targetSize = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
@@ -144,9 +153,10 @@ final class ViewerViewModel: ObservableObject {
 
         // 1) 先用缓存（同步路径）
         if let cached = cache.get(url) {
-            baseImage = cached
+            baseImage = cached.image
+            pixelSize = cached.pixelSize
             let q = RotationStore.shared.get(for: url)
-            let final = (q == 0) ? cached : rotate(cached, quarterTurns: q)
+            let final = (q == 0) ? cached.image : rotate(cached.image, quarterTurns: q)
             processedImage = final
             resetHistoryForNewImage(from: final)
             drive(reason: .newImage, mode: fitMode)
@@ -158,9 +168,11 @@ final class ViewerViewModel: ObservableObject {
                 await MainActor.run {
                     // 若期间用户已切到别的图，避免回写
                     guard self.currentURL == url else { return }
-                    if let (img, _) = result {
+                    if let (cg, px) = result {
+                        let img = NSImage(cgImage: cg, size: .zero)
                         self.baseImage = img
-                        self.cache.set(url, img)
+                        self.pixelSize = px
+                        self.cache.set(url, LoadedImage(image: img, pixelSize: px))
                         let q = RotationStore.shared.get(for: url)
                         let final = (q == 0) ? img : rotate(img, quarterTurns: q)
                         self.processedImage = final
@@ -180,14 +192,14 @@ final class ViewerViewModel: ObservableObject {
         // targetSize
         switch mode {
         case .fitImageToWindow:
-            return sizer.fittedContentSize(for: img, in: window)
+            return sizer.fittedContentSize(for: naturalPoint(), in: window)
 
         case .fitOnlyBigToWindow:
             if isBigInCurrentWindow(img, window: window) {
-                return sizer.fittedContentSize(for: img, in: window)
+                return sizer.fittedContentSize(for: naturalPoint(), in: window)
             } else {
                 // 小图 → 用 1x 大小（带屏幕上限）
-                return scaledContentSize(for: img, scale: 1)
+                return scaledContentSize(for: naturalPoint(), scale: 1, window: window)
             }
         case .fitOnlyBigToDesktop:
             let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
@@ -196,20 +208,20 @@ final class ViewerViewModel: ObservableObject {
             // 不启用 fit，按当前 zoom（初始 1x）并限幅到屏幕
             //let sz = alignedScaledSizeToBacking(img, scale: zoom, window: window)
             //return sz
-            return scaledContentSize(for: img, scale: zoom)
+            return scaledContentSize(for: naturalPoint(), scale: zoom, window: window)
 
         case .doNotFit:
             // 同上，但明确不自动调整：也给窗口一个合理大小（你也可以改为保持窗口不变）
-            return scaledContentSize(for: img, scale: zoom)
+            return scaledContentSize(for: naturalPoint(), scale: zoom, window: window)
         }
     }
     private func isBigInCurrentWindow(_ img: NSImage, window: NSWindow) -> Bool {
-        let natural = naturalPointSize(img)
+        let natural = naturalPoint()
         let layout = window.contentLayoutRect.size   // 当前窗口内容区（考虑了工具栏等）
         return natural.width > layout.width || natural.height > layout.height
     }
     private func alignedScaledSizeToBacking(_ img: NSImage, scale: CGFloat, window: NSWindow) -> CGSize {
-        let base = naturalPointSize(img)
+        let base = naturalPoint()
         let w = base.width  * scale
         let h = base.height * scale
         let s = window.backingScaleFactor
