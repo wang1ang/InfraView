@@ -7,11 +7,11 @@
 import AppKit
 
 
-func rotate(_ image: NSImage, quarterTurns q: Int) -> NSImage {
+func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
     let k = ((q % 4) + 4) % 4         // 0,1,2,3
     if k == 0 { return image }
 
-    let src = image.size
+    let src = image.image.size
     let dst = (k % 2 == 0) ? src : NSSize(width: src.height, height: src.width)
 
     let out = NSImage(size: dst)
@@ -32,8 +32,8 @@ func rotate(_ image: NSImage, quarterTurns q: Int) -> NSImage {
         break
     }
 
-    image.draw(in: .init(origin: .zero, size: src), from: .zero, operation: .copy, fraction: 1)
-    return out
+    image.image.draw(in: .init(origin: .zero, size: src), from: .zero, operation: .copy, fraction: 1)
+    return LoadedImage(image: out, pixelSize: dst)
 }
 
 

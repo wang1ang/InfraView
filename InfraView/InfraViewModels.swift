@@ -23,7 +23,8 @@ final class ViewerViewModel: ObservableObject {
     
     public var window: NSWindow?
 
-    private var baseImage: NSImage?
+    private var baseImage: LoadedImage?
+    
     @Published public var pixelSize: CGSize?
     public var currentURL: URL?
     public var currentFitMode: FitMode = .fitOnlyBigToWindow
@@ -153,12 +154,12 @@ final class ViewerViewModel: ObservableObject {
 
         // 1) 先用缓存（同步路径）
         if let cached = cache.get(url) {
-            baseImage = cached.image
+            baseImage = cached
             pixelSize = cached.pixelSize
             let q = RotationStore.shared.get(for: url)
-            let final = (q == 0) ? cached.image : rotate(cached.image, quarterTurns: q)
-            processedImage = final
-            resetHistoryForNewImage(from: final)
+            let final = (q == 0) ? cached : rotate(cached, quarterTurns: q)
+            processedImage = final.image
+            resetHistoryForNewImage(from: final.image)
             drive(reason: .newImage, mode: fitMode)
         } else {
             // 2) 没缓存：异步加载，回主线程后再应用旋转并 drive
@@ -169,14 +170,16 @@ final class ViewerViewModel: ObservableObject {
                     // 若期间用户已切到别的图，避免回写
                     guard self.currentURL == url else { return }
                     if let (cg, px) = result {
-                        let img = NSImage(cgImage: cg, size: .zero)
+                        let img = LoadedImage(
+                            image: NSImage(cgImage: cg, size: .zero),
+                            pixelSize: px)
                         self.baseImage = img
                         self.pixelSize = px
-                        self.cache.set(url, LoadedImage(image: img, pixelSize: px))
+                        self.cache.set(url, img)
                         let q = RotationStore.shared.get(for: url)
                         let final = (q == 0) ? img : rotate(img, quarterTurns: q)
-                        self.processedImage = final
-                        self.resetHistoryForNewImage(from: final)
+                        self.processedImage = final.image
+                        self.resetHistoryForNewImage(from: final.image)
                         self.drive(reason: .newImage, mode: fitMode)
                     } else {
                         self.loadingError = "Unsupported image format."
@@ -238,9 +241,9 @@ final class ViewerViewModel: ObservableObject {
         RotationStore.shared.set(newQ, for: url)
         
         let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
-        processedImage = rotated
+        processedImage = rotated.image
         // 旋转不参与Undo
-        resetHistoryForNewImage(from: rotated)
+        resetHistoryForNewImage(from: rotated.image)
         
         drive(reason: .fitToggle, mode: fitMode)
         //onScaleChanged?(Int(round(zoom * 100)))
