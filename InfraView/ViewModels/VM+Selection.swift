@@ -7,13 +7,6 @@
 
 import AppKit
 
-extension NSImage {
-    var cgImageSafe: CGImage? {
-        var rect = CGRect(origin: .zero, size: size)
-        return cgImage(forProposedRect: &rect, context: nil, hints: nil)
-    }
-}
-
 extension ViewerViewModel {
     private var activeSelectionRectPx: CGRect? {
         guard

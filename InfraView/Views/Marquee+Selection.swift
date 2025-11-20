@@ -177,12 +177,3 @@ extension PanMarqueeScrollView.Coordinator {
         clearSelection(updateVM: false, restoreTitle: true)
     }
 }
-func signedSqrt(_ v: CGFloat) -> CGFloat {
-    if v > 0 {
-        return  sqrt(v)
-    } else if v < 0 {
-        return -sqrt(-v)
-    } else {
-        return 0
-    }
-}

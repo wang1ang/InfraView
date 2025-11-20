@@ -444,19 +444,6 @@ final class CenteringClipView: NSClipView {
     }
 }
 
-/// 将原点限制在合法范围并处理“小图居中”的情形
-func clampOrigin(_ o: NSPoint, cv: NSClipView, doc: NSView) -> NSPoint {
-    var o = o
-    let dw = doc.bounds.width, dh = doc.bounds.height
-    let cw = cv.bounds.width, ch = cv.bounds.height
-    o.x = (dw <= cw) ? (dw - cw)/2 : min(max(0, o.x), dw - cw)
-    o.y = (dh <= ch) ? (dh - ch)/2 : min(max(0, o.y), dh - ch)
-    return o
-}
-
-
-
-
 
 struct PixelMapper {
     let baseSize: CGSize     // 缩放前的尺寸
@@ -512,16 +499,6 @@ extension PanMarqueeScrollView.Coordinator {
         return PixelMapper(baseSize: baseSize, zoom: getZ(), imagePixels: imagePixels)
     }
 }
-
-extension NSEvent {
-    var hasCommand: Bool {
-        //e.modifierFlags.contains(.command),
-        modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
-    }
-}
-
-
-
 
 
 

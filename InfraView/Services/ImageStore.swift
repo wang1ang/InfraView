@@ -154,11 +154,6 @@ final class ImageRepositoryImpl: ImageRepository {
 }
 
 // MARK: - 轻量 LRU 缓存 + 预加载
-struct LoadedImage {
-    let image: NSImage
-    let pixelSize: CGSize
-}
-
 final class ImageCache {
     // ⚠️ 约定：仅在主线程读写（调用方已在 MainActor 切回主线程）
     private var dict: [URL:LoadedImage] = [:]
