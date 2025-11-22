@@ -75,7 +75,7 @@ extension PanMarqueeScrollView.Coordinator {
             sv.reflectScrolledClipView(cv)
 
             // 缩放后重绘选框
-            reDrawSelectionAfterZoom()
+            //reDrawSelectionAfterZoom()
         }
     }
 
@@ -137,7 +137,7 @@ extension PanMarqueeScrollView.Coordinator {
             if maxLayout.width > doc.bounds.width || maxLayout.height > doc.bounds.height {
                 let z = getZoom?() ?? 1
                 setZoom?(zoomIn ? z * 1.1 : z / 1.1)
-                reDrawSelectionAfterZoom()
+                //reDrawSelectionAfterZoom()
                 return
             }
         }
@@ -194,5 +194,5 @@ extension PanMarqueeScrollView.Coordinator {
         zoomTo(rectPx: targetRectPx)
     }
     // Debug：只打 px，一位小数
-    func f1(_ v: CGFloat) -> String { String(format: "%.1f", v) }
+    //func f1(_ v: CGFloat) -> String { String(format: "%.1f", v) }
 }

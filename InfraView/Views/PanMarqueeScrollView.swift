@@ -45,6 +45,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
     
         var imagePixels: CGSize = .zero
         
+        var lastKnownZoom: CGFloat = 1.0 // 用于感知外部zoom变化
         // 绑定进来，便于内部改 zoom
         var getZoom: (() -> CGFloat)?
         var setZoom: ((CGFloat) -> Void)?
@@ -400,6 +401,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         guard let hv = context.coordinator.hostingView else { return }
         hv.rootView = content
         //hv.layoutSubtreeIfNeeded()
+
+        if context.coordinator.lastKnownZoom != zoom {
+            context.coordinator.lastKnownZoom = zoom
+            DispatchQueue.main.async {
+                context.coordinator.reDrawSelectionAfterZoom()
+            }
+        }
+
         // The only place to update size in coordinator
         context.coordinator.imagePixels = imagePixels
         context.coordinator.baseSize = baseSize
