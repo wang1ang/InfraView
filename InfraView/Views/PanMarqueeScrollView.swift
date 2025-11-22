@@ -409,6 +409,15 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if viewerVM.window !== window {
                 viewerVM.window = window
             }
+        } else {
+            DispatchQueue.main.async { [weak nsView, weak viewerVM] in
+                guard let currentView = nsView,
+                      let currentWindow = currentView.window,
+                      let vm = viewerVM else { return }
+                if vm.window !== currentWindow {
+                    vm.window = currentWindow
+                }
+            }
         }
     }
 }

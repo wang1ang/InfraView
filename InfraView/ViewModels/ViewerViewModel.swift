@@ -231,7 +231,7 @@ final class ViewerViewModel: ObservableObject {
                       height: floor(h * s) / s)
     }
     
-    func rotateCurrentImage(fitMode: FitMode, by q: Int, window: NSWindow) {
+    func rotateCurrentImage(fitMode: FitMode, by q: Int) {
         guard let url = currentURL, let base = baseImage else { return }
         
         let oldQ = RotationStore.shared.get(for: url)

@@ -126,7 +126,7 @@ struct ContentView: View {
             let q = (note.object as? Int) ?? 0
             guard currentURL != nil else { return }
             guard let win = viewerVM.window, win.isKeyWindow else { return }
-            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q, window: win)
+            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
             if let urls = note.object as? [URL] {
