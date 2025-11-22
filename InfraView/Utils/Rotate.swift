@@ -6,34 +6,57 @@
 //
 import AppKit
 
-
 func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
-    let k = ((q % 4) + 4) % 4         // 0,1,2,3
+    print("rotate: \(q)")
+    let k = ((q % 4) + 4) % 4
     if k == 0 { return image }
-
-    let src = image.image.size
-    let dst = (k % 2 == 0) ? src : NSSize(width: src.height, height: src.width)
-
-    let out = NSImage(size: dst)
-    out.lockFocus(); defer { out.unlockFocus() }
-    guard let ctx = NSGraphicsContext.current?.cgContext else { return image }
-
+    
+    let srcSize = image.pixelSize
+    let dstSize = (k % 2 == 0) ? srcSize : NSSize(width: srcSize.height, height: srcSize.width)
+    
+    // 获取源图像的 CGImage
+    guard let cgImage = image.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+    
+    // 创建目标位图上下文（精确像素尺寸）
+    let width = Int(dstSize.width)
+    let height = Int(dstSize.height)
+    
+    guard let ctx = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return image }
+    
+    // 不插值
+    ctx.interpolationQuality = .none
+    ctx.setShouldAntialias(false)
+    
+    // 应用变换
     switch k {
     case 1: // 右转 90°（顺时针）
-        ctx.translateBy(x: 0, y: dst.height)   // = src.width
+        ctx.translateBy(x: 0, y: dstSize.height)
         ctx.rotate(by: -.pi / 2)
     case 2: // 180°
-        ctx.translateBy(x: dst.width, y: dst.height)
+        ctx.translateBy(x: dstSize.width, y: dstSize.height)
         ctx.rotate(by: .pi)
     case 3: // 左转 90°（逆时针）
-        ctx.translateBy(x: dst.width, y: 0)    // = src.height
+        ctx.translateBy(x: dstSize.width, y: 0)
         ctx.rotate(by: .pi / 2)
     default:
         break
     }
 
-    image.image.draw(in: .init(origin: .zero, size: src), from: .zero, operation: .copy, fraction: 1)
-    return LoadedImage(image: out, pixelSize: dst)
+    // 绘制源图像
+    let drawRect = CGRect(x: 0, y: 0, width: srcSize.width, height: srcSize.height)
+    ctx.draw(cgImage, in: drawRect)
+    // 从上下文创建 CGImage
+    guard let rotatedCGImage = ctx.makeImage() else { return image }
+    // 创建 NSImage
+    let out = NSImage(cgImage: rotatedCGImage, size: dstSize)
+    return LoadedImage(image: out, pixelSize: dstSize)
 }
-
 
