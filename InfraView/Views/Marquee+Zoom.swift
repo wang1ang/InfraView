@@ -75,12 +75,17 @@ extension PanMarqueeScrollView.Coordinator {
             sv.reflectScrolledClipView(cv)
 
             // 缩放后重绘选框
-            if let rPx = selectionLayer.currentSelectionPx, let m = makeMapper() {
-                let originDoc = m.pxToDoc(rPx.origin)
-                let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
-                let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
-                selectionLayer.update(rectInDoc: rDoc)
-            }
+            reDrawSelectionAfterZoom()
+        }
+    }
+
+    func reDrawSelectionAfterZoom() {
+        if let rPx = selectionLayer.currentSelectionPx, let m = makeMapper() {
+            print("重绘选框")
+            let originDoc = m.pxToDoc(rPx.origin)
+            let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
+            let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
+            selectionLayer.update(rectInDoc: rDoc)
         }
     }
 
@@ -134,6 +139,7 @@ extension PanMarqueeScrollView.Coordinator {
             if maxLayout.width > doc.bounds.width || maxLayout.height > doc.bounds.height {
                 let z = getZoom?() ?? 1
                 setZoom?(zoomIn ? z * 1.1 : z / 1.1)
+                reDrawSelectionAfterZoom()
                 return
             }
         }
