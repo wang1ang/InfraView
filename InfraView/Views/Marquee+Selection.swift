@@ -13,7 +13,7 @@ extension PanMarqueeScrollView.Coordinator {
 
     /// doc 点是否靠近选框边（用 px 空间判断，避免 zoom 影响）
     func hitTestEdge(pDoc: CGPoint, toleranceDoc: CGFloat = 6) -> Edge? {
-        guard let rPx = selectionLayer.currentSelectionPx,
+        guard let rPx = viewerVM?.selectionRectPx,
               let m = makeMapper() else { return nil }
 
         let rDoc = m.pxToDoc(rPx)
@@ -53,7 +53,7 @@ extension PanMarqueeScrollView.Coordinator {
             guard cv.bounds.contains(pCV) else { return e }
 
             // 无选框：箭头
-            guard self.selectionLayer.currentSelectionPx != nil else {
+            guard viewerVM?.selectionRectPx != nil else {
                 NSCursor.arrow.set()
                 return e
             }
@@ -93,12 +93,13 @@ extension NSCursor {
 
 extension PanMarqueeScrollView.Coordinator {
     /// 从 doc 空间两点更新选框，fireDragging 为 true 时顺便更新标题
-    func updateSelection(from startDoc: CGPoint,
+    func drawSelectionByDoc(from startDoc: CGPoint,
                          to currentDoc: CGPoint,
                          fireDragging: Bool) {
         guard let m = makeMapper() else { return }
         let snapped = m.snapDocRect(startDoc: startDoc, endDoc: currentDoc)
-        selectionLayer.update(snapped: snapped)
+        selectionLayer.update(rectInDoc: snapped.rectDoc)
+        viewerVM?.setSelectionPx(rectPx: snapped.rectPx)
         onChanged?(snapped.rectPx)
         if fireDragging {
             showDraggingInTitle(for: snapped.rectPx)
@@ -108,7 +109,7 @@ extension PanMarqueeScrollView.Coordinator {
                         restoreTitle: Bool = true) {
         selectionLayer.clear()
         if updateVM {
-            viewerVM?.updateSelection(rectPx: nil)
+            viewerVM?.setSelectionPx(rectPx: nil)
         }
         if restoreTitle {
             windowTitle.restoreBase(of: scrollView?.window)

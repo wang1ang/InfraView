@@ -10,22 +10,21 @@ import AppKit
 
 extension PanMarqueeScrollView.Coordinator {
     /// 将 px 矩形提交到 overlay（统一在这里 snap）
-    func drawSelectionOverlay(_ rPx: CGRect) -> CGRect? {
+    func drawSelectionPx(_ rPx: CGRect) -> CGRect? {
         guard let m = makeMapper() else { return nil }
         let snapped = m.quantizeAndClampPxRect(rPx)                     // ← 量化
-        let rDoc = CGRect(origin: m.pxToDoc(snapped.origin),
-                          size:   CGSize(width: snapped.width / m.sx,
-                                         height: snapped.height / m.sy))
+        let rDoc = m.pxToDoc(snapped)
         selectionLayer.update(rectInDoc: rDoc)
-        selectionLayer.currentSelectionPx = snapped
+        //selectionLayer.currentSelectionPx = snapped
+        viewerVM?.setSelectionPx(rectPx: snapped)
         onChanged?(snapped)
         return snapped
     }
     
     func finishSelectionPx(_ rPx: CGRect) {
-        guard let snapped = drawSelectionOverlay(rPx) else { return }
+        guard let snapped = drawSelectionPx(rPx) else { return }
         onFinished?(snapped)
-        viewerVM?.updateSelection(rectPx: snapped)
+        //viewerVM?.setSelectionPx(rectPx: snapped)
         showSelectionInTitle(for: snapped)
         selectionStartInDoc = nil
         lastMouseDownDocPoint = nil
@@ -37,13 +36,13 @@ extension PanMarqueeScrollView.Coordinator {
         ensureSelectionLayer(on: doc)
         // 显示当前选框状态
         
-        if let rPx = selectionLayer.currentSelectionPx {
+        if let rPx = viewerVM?.selectionRectPx {
             showDraggingInTitle(for: rPx)
         }
     }
     
     func changedResizingEdge(_ edge: Edge, by p: CGPoint) {
-        guard var rPx = selectionLayer.currentSelectionPx,
+        guard var rPx = viewerVM?.selectionRectPx,
               let m = makeMapper() else { return }
 
         let pPx = m.docToPx(p)
@@ -108,13 +107,13 @@ extension PanMarqueeScrollView.Coordinator {
         default:
             break
         }
-        guard let snapped = drawSelectionOverlay(rPx) else { return }
+        guard let snapped = drawSelectionPx(rPx) else { return }
         // 拖动中显示“Dragging Rect”
         showDraggingInTitle(for: snapped)
     }
 
     func endedResizingEdge() {
-        if let rPx = selectionLayer.currentSelectionPx {
+        if let rPx = viewerVM?.selectionRectPx {
             finishSelectionPx(rPx)        // ← 关键：结束时显示“Selection …”
         }
         resizingEdge = nil
@@ -127,20 +126,16 @@ extension PanMarqueeScrollView.Coordinator {
     /// rPx 是“连续坐标”，只拿来画 UI 和更新 VM
     func updateSelectionWhileDragging(_ rPx: CGRect) {
         guard let m = makeMapper() else { return }
-        let rDoc = CGRect(
-            origin: m.pxToDoc(rPx.origin),
-            size: CGSize(width: rPx.width / m.sx,
-                         height: rPx.height / m.sy)
-        )
+        let rDoc = m.pxToDoc(rPx)
         selectionLayer.update(rectInDoc: rDoc)
-        selectionLayer.currentSelectionPx = rPx
+        viewerVM?.setSelectionPx(rectPx: rPx)
         onChanged?(rPx)
         showDraggingInTitle(for: rPx)
     }
     /// 根据 contentView 内的 translation 移动选框（px 空间 + clamp）
     func moveSelection(by translationInCV: CGPoint, cursorInDoc pDoc: CGPoint) {
         guard translationInCV != .zero,
-              var rPx = selectionLayer.currentSelectionPx,
+              var rPx = viewerVM?.selectionRectPx,
               let m = makeMapper()
         else { return }
 

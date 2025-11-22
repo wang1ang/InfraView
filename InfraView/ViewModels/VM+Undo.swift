@@ -26,21 +26,13 @@ extension ViewerViewModel {
     }
 
     // 用某个 CGImage 覆盖当前图像
-    /*
-    func applyImage(_ cg: CGImage) {
-        currentCGImage = cg
-        let size = processedImage?.size ?? NSSize(width: cg.width, height: cg.height)
-        let nsImage = NSImage(cgImage: cg, size: size)
-        processedImage = nsImage
-    }*/
     func applyImage(_ cg: CGImage) {
         currentCGImage = cg
         let w = cg.width; let h = cg.height
         let size = NSSize(width: w, height: h)
         let nsImage = NSImage(cgImage: cg, size: size)
-        processedImage = nsImage
-        let factor = getFactor()
-        pixelSize = NSSize(width: w, height: h)
+        print("applyImage: \(size)")
+        setProcessedImage(LoadedImage(image: nsImage, pixelSize: size))
     }
 
 

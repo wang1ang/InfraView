@@ -25,7 +25,7 @@ final class ViewerViewModel: ObservableObject {
 
     private var baseImage: LoadedImage?
     
-    @Published public var pixelSize: CGSize?
+    @Published public var processedPixelSize: CGSize?
     public var currentURL: URL?
     public var currentFitMode: FitMode = .fitOnlyBigToWindow
     
@@ -120,7 +120,7 @@ final class ViewerViewModel: ObservableObject {
     }
     func naturalPoint() -> CGSize {
         let factor = getFactor()
-        return CGSize(width: (pixelSize?.width ?? 0) / factor, height: (pixelSize?.height ?? 0) / factor)
+        return CGSize(width: (processedPixelSize?.width ?? 0) / factor, height: (processedPixelSize?.height ?? 0) / factor)
     }
     func fitImageToWindow() {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
@@ -151,15 +151,15 @@ final class ViewerViewModel: ObservableObject {
         let url = urls[index]
         currentURL = url  // used for persistent rotate
         loadingError = nil
-        processedImage = nil   // 清空旧图，避免误用
+        setProcessedImage(nil) // 清空旧图，避免误用
 
         // 1) 先用缓存（同步路径）
         if let cached = cache.get(url) {
             baseImage = cached
-            pixelSize = cached.pixelSize
+            processedPixelSize = cached.pixelSize
             let q = RotationStore.shared.get(for: url)
             let final = (q == 0) ? cached : rotate(cached, quarterTurns: q)
-            processedImage = final.image
+            setProcessedImage(final)
             resetHistoryForNewImage(from: final.image)
             drive(reason: .newImage, mode: fitMode)
         } else {
@@ -175,11 +175,11 @@ final class ViewerViewModel: ObservableObject {
                             image: NSImage(cgImage: cg, size: .zero),
                             pixelSize: px)
                         self.baseImage = img
-                        self.pixelSize = px
+                        self.processedPixelSize = px
                         self.cache.set(url, img)
                         let q = RotationStore.shared.get(for: url)
                         let final = (q == 0) ? img : rotate(img, quarterTurns: q)
-                        self.processedImage = final.image
+                        self.setProcessedImage(final)
                         self.resetHistoryForNewImage(from: final.image)
                         self.drive(reason: .newImage, mode: fitMode)
                     } else {
@@ -239,15 +239,19 @@ final class ViewerViewModel: ObservableObject {
         RotationStore.shared.set(newQ, for: url)
         
         let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
-        processedImage = rotated.image
+        setProcessedImage(rotated)
         // 旋转不参与Undo
         resetHistoryForNewImage(from: rotated.image)
         
         drive(reason: .fitToggle, mode: fitMode)
     }
     
-    func updateSelection(rectPx: CGRect?) {
+    func setSelectionPx(rectPx: CGRect?) {
         selectionRectPx = rectPx
     }
 
+    func setProcessedImage(_ img: LoadedImage?) {
+        processedImage = img?.image
+        processedPixelSize = img?.pixelSize
+    }
 }

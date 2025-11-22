@@ -80,11 +80,9 @@ extension PanMarqueeScrollView.Coordinator {
     }
 
     func reDrawSelectionAfterZoom() {
-        if let rPx = selectionLayer.currentSelectionPx, let m = makeMapper() {
+        if let rPx = viewerVM?.selectionRectPx, let m = makeMapper() {
             print("重绘选框")
-            let originDoc = m.pxToDoc(rPx.origin)
-            let sizeDoc   = CGSize(width: rPx.size.width / m.sx, height: rPx.size.height / m.sy)
-            let rDoc      = CGRect(origin: originDoc, size: sizeDoc)
+            let rDoc = m.pxToDoc(rPx)
             selectionLayer.update(rectInDoc: rDoc)
         }
     }
@@ -92,7 +90,7 @@ extension PanMarqueeScrollView.Coordinator {
     /// 便捷：对当前选框 zoom-to-fit
     @MainActor
     func zoomToCurrentSelection() {
-        guard let rPx = selectionLayer.currentSelectionPx else { return }
+        guard let rPx = viewerVM?.selectionRectPx else { return }
         zoomTo(rectPx: rPx)
         clearSelection(updateVM: true, restoreTitle: true)
     }

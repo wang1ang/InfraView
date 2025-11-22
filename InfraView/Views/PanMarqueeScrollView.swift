@@ -129,7 +129,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if g.state == .began {
                 NSCursor.closedHand.push()
                 panMode = .scroll
-                if let rPx = selectionLayer.currentSelectionPx,
+                if let rPx = viewerVM?.selectionRectPx,
                    let m = makeMapper() {
                     let rDoc = m.pxToDoc(rPx)
                     if rDoc.contains(pDoc) {
@@ -142,7 +142,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             // 2. 先处理结束，防止抬鼠标的位移
             if g.state == .ended || g.state == .cancelled {
                 if panMode == .moveSelection,
-                    let rPx = selectionLayer.currentSelectionPx {
+                    let rPx = viewerVM?.selectionRectPx {
                         finishSelectionPx(rPx)
                 }
                 panMode = .none
@@ -216,7 +216,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 }
                 
                 // [EDGE-RESIZE] 若已有选框，先做边缘命中检测；命中则进入“沿边缩放”模式
-                if selectionLayer.currentSelectionPx != nil,
+                if viewerVM?.selectionRectPx != nil,
                    let edge = hitTestEdge(pDoc: p) {
                     beganResizingEdge(edge, on: doc)
                     return
@@ -231,7 +231,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 selectionStartInDoc = p
                 ensureSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc {
-                    updateSelection(from: s, to: p, fireDragging: true)
+                    drawSelectionByDoc(from: s, to: p, fireDragging: true)
                 }
             case .changed:
                 // [EDGE-RESIZE] 处于沿边缩放
@@ -241,7 +241,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 }
                 
                 guard !suppressMarquee, let s = selectionStartInDoc else { return }
-                updateSelection(from: s, to: p, fireDragging: true)
+                drawSelectionByDoc(from: s, to: p, fireDragging: true)
             case .ended, .cancelled:
                 // [EDGE-RESIZE] 完成沿边缩放
                 if resizingEdge != nil {
@@ -307,12 +307,12 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 NSCursor.crosshair.push()
 
                 // ✅ 新增：如果是点在“选框边缘”，说明要进入缩放；此时不要显示取色标题
-                if self.selectionLayer.currentSelectionPx != nil,
+                if viewerVM?.selectionRectPx != nil,
                    self.hitTestEdge(pDoc: pDoc) != nil {
                     return e
                 }
                 // 如果点在选框内部、准备移动/缩放，你也可以选择不取色
-                if let rPx = selectionLayer.currentSelectionPx,
+                if let rPx = viewerVM?.selectionRectPx,
                    let m = makeMapper() {
                     let pPx = m.docToPx(pDoc)
                     if rPx.contains(pPx) {
@@ -459,6 +459,7 @@ struct PixelMapper {
     var sy: CGFloat { max(0.0001, imagePixels.height / max(0.0001, contentSize.height)) }
 
     func docToPx(_ p: CGPoint) -> CGPoint { .init(x: p.x * sx, y: p.y * sy) }
+    func docToPx(_ r: CGRect) -> CGRect { return CGRect(x: r.minX * sx, y: r.minY * sy, width: r.width * sx, height: r.height * sy) }
     func pxToDoc(_ p: CGPoint) -> CGPoint { .init(x: p.x / sx, y: p.y / sy) }
     func pxToDoc(_ r: CGRect) -> CGRect { return CGRect(x: r.minX / sx, y: r.minY / sy, width: r.width / sx, height: r.height / sy) }
 
@@ -480,6 +481,7 @@ struct PixelMapper {
         return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
     }
 
+    
     func snapDocRect(startDoc s: CGPoint, endDoc e: CGPoint) -> (rectDoc: CGRect, rectPx: CGRect) {
         let sPx = docToPx(s), ePx = docToPx(e)
         let rawPx = CGRect(x: min(sPx.x, ePx.x),
@@ -487,8 +489,7 @@ struct PixelMapper {
                            width: abs(ePx.x - sPx.x),
                            height: abs(ePx.y - sPx.y))
         let rPx = quantizeAndClampPxRect(rawPx)
-        let rDoc = CGRect(origin: pxToDoc(rPx.origin),
-                          size: .init(width: rPx.width / sx, height: rPx.height / sy))
+        let rDoc = pxToDoc(rPx)
         return (rDoc, rPx)
     }
 }
@@ -504,7 +505,6 @@ extension PanMarqueeScrollView.Coordinator {
 
 final class SelectionOverlay {
     let layer = CAShapeLayer()
-    var currentSelectionPx: CGRect?
 
     init() {
         layer.fillColor = nil
@@ -523,13 +523,8 @@ final class SelectionOverlay {
         let path = CGMutablePath(); path.addRect(r)
         layer.path = path
     }
-    func update(snapped: (rectDoc: CGRect, rectPx: CGRect)) {
-        update(rectInDoc: snapped.rectDoc)
-        currentSelectionPx = snapped.rectPx
-    }
     func clear() {
         layer.path = nil
-        currentSelectionPx = nil
     }
 }
 
