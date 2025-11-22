@@ -182,7 +182,6 @@ struct ContentView: View {
                 Slider(value: zoomBinding(), in: 0.05...20)
                 Divider(); zoomMenuContent
             }, label: { Text("\(String(bar.zoomPercent ?? 100))%") })
-                //Int(round(viewerVM.zoom*100))
 
             Button { previous() } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: [])

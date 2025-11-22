@@ -19,6 +19,7 @@ struct ZoomableImage: View {
     var onLayoutChange: ((Bool, CGSize) -> Void)? = nil
     var onViewPortChange: () -> Void
 
+    // used only for MagnificationGesture
     @State private var baseZoom: CGFloat = 1
     @Environment(\.displayScale) private var displayScale
     
@@ -29,8 +30,10 @@ struct ZoomableImage: View {
                 width:  px.width / displayScale,
                 height: px.height / displayScale
             )
-            let baseW = max(naturalPt.width, 1)
-            let baseH = max(naturalPt.height, 1)
+            let baseW = max(naturalPt.width, 0.1)
+            let baseH = max(naturalPt.height, 0.1)
+
+            // 核心科技：最终决定图片大小的地方！
             let currentScale: CGFloat = zoom
 
             let contentW = baseW * currentScale
@@ -59,7 +62,7 @@ struct ZoomableImage: View {
                 baseZoom = newZoom
             }
             .onChange(of: proxy.size) { _, newSize in
-                onViewPortChange()
+                onViewPortChange() // 通知 view model
             }
             .gesture(
                 MagnificationGesture()
