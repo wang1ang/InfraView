@@ -415,18 +415,14 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         //context.coordinator.windowTitle.reset()
         //NOTE: 第一次打开图片，NSScrollView还没加入窗口层级，拿不到window
         if let window = nsView.window {
-            if viewerVM.window !== window {
-                viewerVM.window = window
-            }
+            viewerVM.setWindow(window)
         } else {
             DispatchQueue.main.async { [weak nsView, weak viewerVM] in
                 guard let currentView = nsView,
                       let currentWindow = currentView.window,
                       let vm = viewerVM else { return }
-                if vm.window !== currentWindow {
-                    vm.window = currentWindow
-                }
-            }
+                vm.setWindow(currentWindow)
+           }
         }
     }
 }

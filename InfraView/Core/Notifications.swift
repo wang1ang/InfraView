@@ -20,6 +20,7 @@ extension Notification.Name {
     // MARK: - 编辑操作
     static let infraDelete = Notification.Name("InfraView.Delete")
     static let infraRotate = Notification.Name("InfraView.Rotate")
+    static let infraToggleStar = Notification.Name("InfraView.ToggleStar")
     static let infraCopy = Notification.Name("InfraView.Copy")
     static let infraCut = Notification.Name("InfraView.Cut")
     static let infraCrop = Notification.Name("InfraView.Crop")

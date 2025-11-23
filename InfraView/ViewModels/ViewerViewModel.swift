@@ -22,6 +22,11 @@ final class ViewerViewModel: ObservableObject {
 
     
     public var window: NSWindow?
+    func setWindow(_ win: NSWindow?) {
+        if self.window !== win {
+            window = win
+        }
+    }
 
     private var baseImage: LoadedImage?
     

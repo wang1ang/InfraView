@@ -13,20 +13,25 @@ public final class StatusBarStore: ObservableObject {
     @Published public var pixelWidth: Int?
     @Published public var pixelHeight: Int?
     @Published public var bitsPerPixel: Int?
-
     @Published public var index: Int?
     @Published public var total: Int?
-
     @Published public var zoomPercent: Int?
-
     @Published public var timestamp: Date?
-    
+    @Published public var isStarred: Bool = false
     @Published public var isVisible: Bool = true
+
+    // used for setting star
+    private var activeURL: URL?
+
     public var height: CGFloat { isVisible ? 22 : 0 }
 
     // 计算出的片段（按你截图的顺序）
     public var segments: [String] {
         var s: [String] = []
+
+        if isStarred {
+            s.append("⭐")
+        }
 
         if let w = pixelWidth, let h = pixelHeight, let bpp = bitsPerPixel {
             s.append("\(w) × \(h) × \(bpp) BPP")
@@ -57,13 +62,19 @@ public final class StatusBarStore: ObservableObject {
     }
     public func setZoom(percent: Int?) { zoomPercent = percent }
     public func setTimestamp(_ date: Date?) { timestamp = date }
+    public func toggleStar() {
+        guard let url = activeURL else { return }
+        let newState = StarStore.shared.toggle(for: url)
+        isStarred = newState
+    }
 
     public func clear() {
         pixelWidth = nil; pixelHeight = nil; bitsPerPixel = nil
         index = nil; total = nil; zoomPercent = nil
         timestamp = nil
+        isStarred = false
+        activeURL = nil
     }
-
 
     // 辅助属性和方法
     private static let dateFormatter: DateFormatter = {
@@ -79,6 +90,8 @@ public final class StatusBarStore: ObservableObject {
     
     // Viewer 内部加：更新状态栏固定字段
     public func updateStatus(url: URL, image: NSImage, index: Int, total: Int) {
+        activeURL = url
+
         // 1) 像素尺寸与 BPP
         let (pw, ph, repBPP) = pixelInfo(from: image)
         
@@ -97,6 +110,8 @@ public final class StatusBarStore: ObservableObject {
         } else {
             setTimestamp(nil)
         }
+
+        isStarred = StarStore.shared.get(for: url)
     }
 }
 

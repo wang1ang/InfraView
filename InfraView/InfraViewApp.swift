@@ -37,15 +37,14 @@ struct InfraViewApp: App {
             CommandGroup(after: .sidebar) {
                 Button("Rotate Left") {
                     NotificationCenter.default.post(name: .infraRotate, object: -1)
-                }
-                .keyboardShortcut("L", modifiers: [])
+                }.keyboardShortcut("L", modifiers: [])
 
                 Button("Rotate Right") {
                     NotificationCenter.default.post(name: .infraRotate, object: 1)
-                }
-
-                .keyboardShortcut("R", modifiers: [])
-
+                }.keyboardShortcut("R", modifiers: [])
+                Button("Toggle Star") {
+                    NotificationCenter.default.post(name: .infraToggleStar, object: nil)
+                }.keyboardShortcut("S", modifiers: [.control])
                 Toggle("Show Status Bar", isOn: $bar.isVisible)
                 .keyboardShortcut("S", modifiers: [])
             }

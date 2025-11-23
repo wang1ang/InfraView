@@ -83,7 +83,6 @@ struct Viewer: View {
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
                     showCurrent()
                 }
-
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
             }
@@ -93,6 +92,11 @@ struct Viewer: View {
         }
         .onChange(of: viewerVM.zoom) { _, newZoom in
             bar.setZoom(percent: Int(round(newZoom * 100)))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .infraToggleStar)) { _ in
+            if viewerVM.window?.isKeyWindow == true {
+                bar.toggleStar()
+            }
         }
     }
 
