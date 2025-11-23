@@ -81,7 +81,8 @@ struct Viewer: View {
                     showCurrent()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-                    showCurrent()
+                    // comment out to fix wrong window shape after exiting full scr
+                    //showCurrent()
                 }
             } else {
                 Placeholder(title: "No Selection", systemName: "rectangle.dashed", text: "Open an image (⌘O)")
