@@ -64,13 +64,17 @@ struct CanvasSizePanelView: View {
                                     Image(systemName: align.systemImage).font(.title3)
                                     Text(align.rawValue).font(.caption2)
                                 }
+                                .frame(maxWidth: .infinity) // 让每个选项宽度一致
                                 .foregroundColor(alignment == align ? .accentColor : .primary)
                                 .padding(8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(alignment == align ? Color.accentColor.opacity(0.1) : Color.clear)
                                 )
-                            }.buttonStyle(PlainButtonStyle())
+                                .contentShape(Rectangle()) // 确保整个区域都可点击
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .focusable(false)
                         }
                     }
                 }

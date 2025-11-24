@@ -80,7 +80,7 @@ struct InfraViewApp: App {
                         // 你的实际逻辑
                     }
                 }
-                .keyboardShortcut("V", modifiers: [])
+                .keyboardShortcut("V", modifiers: [.shift])
             }
         }
     }
