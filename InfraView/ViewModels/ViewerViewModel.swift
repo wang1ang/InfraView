@@ -244,11 +244,30 @@ final class ViewerViewModel: ObservableObject {
         RotationStore.shared.set(newQ, for: url)
         
         let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
+        // 旋转不参与Undo,不用applyCGImage
         setProcessedImage(rotated)
         // 旋转不参与Undo
         resetHistoryForNewImage(from: rotated.image)
         
         drive(reason: .fitToggle, mode: fitMode)
+    }
+    
+    func flipCurrentImage(by direction: String) {
+        guard let image = processedImage,
+              let pixelSize = processedPixelSize else { return }
+        let currentImage = LoadedImage(image: image, pixelSize: pixelSize)
+        var flipped: CGImage?
+        print(direction)
+        if direction == "V" {
+            flipped = flipVertically(currentImage)
+        } else {
+            flipped = flipHorizontally(currentImage)
+        }
+        if let newImage = flipped {
+            // flip 参与Undo
+            pushUndoSnapshot()
+            applyCGImage(newImage)
+        }
     }
     
     func setSelectionPx(rectPx: CGRect?) {

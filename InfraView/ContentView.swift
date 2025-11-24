@@ -30,7 +30,7 @@ struct ContentView: View {
         guard let i = store.selection, store.imageURLs.indices.contains(i) else { return nil }
         return store.imageURLs[i]
     }
-
+    
     var body: some View {
         GeometryReader { geo in
             Viewer(store: store,
@@ -124,9 +124,16 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
             let q = (note.object as? Int) ?? 0
-            guard currentURL != nil else { return }
+            //guard currentURL != nil else { return }
             guard let win = viewerVM.window, win.isKeyWindow else { return }
             viewerVM.rotateCurrentImage(fitMode: fitMode, by: q)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .infraFlip)) { note in
+            //guard currentURL != nil else { return }
+            guard let direction = note.object as? String,
+                  let win = viewerVM.window,
+                  win.isKeyWindow else { return }
+            viewerVM.flipCurrentImage(by: direction)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
             if let urls = note.object as? [URL] {

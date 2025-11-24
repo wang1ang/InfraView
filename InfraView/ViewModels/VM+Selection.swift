@@ -17,7 +17,7 @@ extension ViewerViewModel {
         else { return nil }
         return r
     }
-    private var activeCGImage: CGImage? {
+    private var getCGImage: CGImage? {
         if let cg = currentCGImage { return cg }
         if let img = processedImage, let cg = img.cgImageSafe {
             currentCGImage = cg
@@ -26,7 +26,7 @@ extension ViewerViewModel {
         return nil
     }
     private func croppedImage(from rect: CGRect) -> CGImage? {
-        guard let cg = activeCGImage else { return nil }
+        guard let cg = getCGImage else { return nil }
         return cg.cropping(to: rect)
     }
     // ✅ 复制当前选区到剪贴板（如果有选区且有图像）
@@ -53,9 +53,8 @@ extension ViewerViewModel {
 
         // 3. 撤销栈
         pushUndoSnapshot()
-
         DispatchQueue.main.async {
-            self.applyImage(cropped)
+            self.applyCGImage(cropped)
             // will be done in coordinator:
             //self.selectionRectPx = nil
         }
@@ -64,9 +63,7 @@ extension ViewerViewModel {
     @discardableResult
     func eraseSelection() -> Bool {
         guard let rectPx = activeSelectionRectPx else { return false }
-        guard let cg = activeCGImage else { return false }
-
-        pushUndoSnapshot()
+        guard let cg = getCGImage else { return false }
         
         let width  = cg.width
         let height = cg.height
@@ -99,11 +96,12 @@ extension ViewerViewModel {
 
         guard let newCG = ctx.makeImage() else { return false }
 
+        pushUndoSnapshot()
         DispatchQueue.main.async {
-            self.applyImage(newCG)
+            self.applyCGImage(newCG)
             // 清不掉
             //self.selectionRectPx = nil
-            // 如果你有别的地方依赖选区变化，这里可以发通知或调用回调
+            // 如果有别的地方依赖选区变化，这里可以发通知或调用回调
         }
         return true
     }

@@ -59,6 +59,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var mouseUpMonitor: Any?
         var mouseMoveMonitor: Any?
         var rotateObserver: NSObjectProtocol?
+        var flipObserver: NSObjectProtocol?
         var selectAllObserver: NSObjectProtocol?
         var cropObserver: NSObjectProtocol?
         var saveObserver: NSObjectProtocol?
@@ -75,6 +76,16 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                         guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
                         self.clearSelection(updateVM: true, restoreTitle: true)
                     }
+            }
+            flipObserver = NotificationCenter.default.addObserver(
+                forName: .infraFlip,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
+                    self.clearSelection(updateVM: true, restoreTitle: true)
+                }
             }
             selectAllObserver = NotificationCenter.default.addObserver(
                 forName: .infraSelectAll,
@@ -109,6 +120,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m) }
             if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
             if let o = rotateObserver  { NotificationCenter.default.removeObserver(o) }
+            if let o = flipObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = selectAllObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = cropObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = saveObserver  { NotificationCenter.default.removeObserver(o) }

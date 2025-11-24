@@ -44,9 +44,9 @@ struct InfraViewApp: App {
                 }.keyboardShortcut("R", modifiers: [])
                 Button("Toggle Star") {
                     NotificationCenter.default.post(name: .infraToggleStar, object: nil)
-                }.keyboardShortcut("S", modifiers: [.control])
+                }.keyboardShortcut("S", modifiers: [])
                 Toggle("Show Status Bar", isOn: $bar.isVisible)
-                .keyboardShortcut("S", modifiers: [])
+                .keyboardShortcut("S", modifiers: [.control])
             }
             CommandGroup(replacing: .pasteboard) {
                 Button("Cut") {
@@ -65,6 +65,15 @@ struct InfraViewApp: App {
                 Button("Crop") {
                     NotificationCenter.default.post(name: .infraCrop, object: nil)
                 }
+            }
+            CommandMenu("Image") {
+                Button("Vertical Flip") {
+                    NotificationCenter.default.post(name: .infraFlip, object: "V")
+                }.keyboardShortcut("V", modifiers: [])
+                Button("Horizontal Flip") {
+                    NotificationCenter.default.post(name: .infraFlip, object: "H")
+                }.keyboardShortcut("H", modifiers: [])
+                Divider()
             }
         }
     }

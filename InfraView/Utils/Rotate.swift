@@ -59,4 +59,44 @@ func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
     let out = NSImage(cgImage: rotatedCGImage, size: dstSize)
     return LoadedImage(image: out, pixelSize: dstSize)
 }
+// 公共的图片变换函数
+private func transformCGImage(_ image: NSImage, transform: CGAffineTransform) -> CGImage? {
+    guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        return nil
+    }
 
+    let width = Int(cgImage.width)
+    let height = Int(cgImage.height)
+
+    guard let ctx = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return cgImage }
+
+    ctx.interpolationQuality = .none
+    ctx.setShouldAntialias(false)
+    ctx.concatenate(transform)
+    ctx.draw(cgImage, in: CGRect(origin: .zero, size: CGSize(width: CGFloat(width), height: CGFloat(height))))
+
+    guard let transformedCGImage = ctx.makeImage() else { return cgImage }
+    return transformedCGImage
+}
+
+// 水平翻转
+func flipHorizontally(_ image: LoadedImage) -> CGImage? {
+    let transform = CGAffineTransform(scaleX: -1, y: 1)
+        .translatedBy(x: -image.pixelSize.width, y: 0)
+    return transformCGImage(image.image, transform: transform)
+}
+
+// 垂直翻转
+func flipVertically(_ image: LoadedImage) -> CGImage? {
+    let transform = CGAffineTransform(scaleX: 1, y: -1)
+        .translatedBy(x: 0, y: -image.pixelSize.height)
+    return transformCGImage(image.image, transform: transform)
+}

@@ -26,12 +26,13 @@ extension ViewerViewModel {
     }
 
     // 用某个 CGImage 覆盖当前图像
-    func applyImage(_ cg: CGImage) {
+    // 在baseImage和processedImage之间多加了一层currentCGImage用来特殊处理旋转。
+    func applyCGImage(_ cg: CGImage) {
         currentCGImage = cg
         let w = cg.width; let h = cg.height
         let size = NSSize(width: w, height: h)
         let nsImage = NSImage(cgImage: cg, size: size)
-        print("applyImage: \(size)")
+        print("applyCGImage: \(size)")
         setProcessedImage(LoadedImage(image: nsImage, pixelSize: size))
     }
 
@@ -41,7 +42,7 @@ extension ViewerViewModel {
         if let cur = currentCGImage {
             redoStack.append(cur)
         }
-        applyImage(last)
+        applyCGImage(last)
         selectionRectPx = nil
     }
 
@@ -50,7 +51,7 @@ extension ViewerViewModel {
         if let cur = currentCGImage {
             undoStack.append(cur)
         }
-        applyImage(last)
+        applyCGImage(last)
         selectionRectPx = nil
     }
 
