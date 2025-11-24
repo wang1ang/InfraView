@@ -2,9 +2,8 @@
 //  CanvasSizePanel.swift
 //  InfraView
 //
-//  Created by 王洋 on 24/11/2025.
+//  Created by 王洋 on 2025.
 //
-
 
 import SwiftUI
 
@@ -16,15 +15,29 @@ struct CanvasSizeConfig {
 }
 
 enum CanvasAlignment: String, CaseIterable, Identifiable {
-    case top = "Top", bottom = "Bottom", left = "Left", right = "Right", center = "Center"
+    case topLeft = "Top Left"
+    case top = "Top"
+    case topRight = "Top Right"
+    case left = "Left"
+    case center = "Center"
+    case right = "Right"
+    case bottomLeft = "Bottom Left"
+    case bottom = "Bottom"
+    case bottomRight = "Bottom Right"
+    
     var id: String { rawValue }
+    
     var systemImage: String {
         switch self {
+        case .topLeft: return "arrow.up.left.square"
         case .top: return "arrow.up.square"
-        case .bottom: return "arrow.down.square"
+        case .topRight: return "arrow.up.right.square"
         case .left: return "arrow.left.square"
-        case .right: return "arrow.right.square"
         case .center: return "square"
+        case .right: return "arrow.right.square"
+        case .bottomLeft: return "arrow.down.left.square"
+        case .bottom: return "arrow.down.square"
+        case .bottomRight: return "arrow.down.right.square"
         }
     }
 }
@@ -36,6 +49,13 @@ struct CanvasSizePanelView: View {
     @State private var alignment: CanvasAlignment = .center
     let onConfirm: (CanvasSizeConfig) -> Void
     let onCancel: () -> Void
+    
+    // 九宫格排列
+    private let alignmentRows: [[CanvasAlignment]] = [
+        [.topLeft, .top, .topRight],
+        [.left, .center, .right],
+        [.bottomLeft, .bottom, .bottomRight]
+    ]
     
     var body: some View {
         VStack(spacing: 20) {
@@ -54,27 +74,34 @@ struct CanvasSizePanelView: View {
                     }
                 }
                 
-                // 对齐方式选择
+                // 九宫格对齐方式选择
                 VStack(alignment: .leading) {
                     Text("Alignment").font(.caption).foregroundColor(.secondary)
-                    HStack(spacing: 12) {
-                        ForEach(CanvasAlignment.allCases) { align in
-                            Button(action: { alignment = align }) {
-                                VStack(spacing: 4) {
-                                    Image(systemName: align.systemImage).font(.title3)
-                                    Text(align.rawValue).font(.caption2)
+                    VStack(spacing: 8) {
+                        ForEach(alignmentRows, id: \.self) { row in
+                            HStack(spacing: 8) {
+                                ForEach(row) { align in
+                                    Button(action: { alignment = align }) {
+                                        VStack(spacing: 4) {
+                                            Image(systemName: align.systemImage).font(.title3)
+                                            Text(align.rawValue)
+                                                .font(.system(size: 9)) // 缩小字体以适应更多文字
+                                                .multilineTextAlignment(.center)
+                                                .lineLimit(2)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .foregroundColor(alignment == align ? .accentColor : .primary)
+                                        .padding(8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(alignment == align ? Color.accentColor.opacity(0.1) : Color.clear)
+                                        )
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .focusable(false)
                                 }
-                                .frame(maxWidth: .infinity) // 让每个选项宽度一致
-                                .foregroundColor(alignment == align ? .accentColor : .primary)
-                                .padding(8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(alignment == align ? Color.accentColor.opacity(0.1) : Color.clear)
-                                )
-                                .contentShape(Rectangle()) // 确保整个区域都可点击
                             }
-                            .buttonStyle(PlainButtonStyle())
-                            .focusable(false)
                         }
                     }
                 }
@@ -90,7 +117,7 @@ struct CanvasSizePanelView: View {
             }
         }
         .padding(20)
-        .frame(width: 400)
+        .frame(width: 420) // 稍微加宽一点以容纳九宫格
     }
 }
 
@@ -121,7 +148,7 @@ class CanvasSizePanelManager {
     
     private func createPanel() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 360), // 增加高度以容纳九宫格
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
