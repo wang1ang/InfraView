@@ -11,7 +11,7 @@ import SwiftUI
 struct InfraViewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var bar = StatusBarStore.shared
-
+    
     var body: some Scene {
         WindowGroup {
             ContentViewWithStatusBar()
@@ -74,6 +74,13 @@ struct InfraViewApp: App {
                     NotificationCenter.default.post(name: .infraFlip, object: "H")
                 }.keyboardShortcut("H", modifiers: [])
                 Divider()
+                Button("Change Canvas Size") {
+                    CanvasSizePanelManager.shared.show { config in
+                        print("应用新尺寸: \(config.width)x\(config.height)")
+                        // 你的实际逻辑
+                    }
+                }
+                .keyboardShortcut("V", modifiers: [])
             }
         }
     }
