@@ -6,16 +6,13 @@
 //
 import AppKit
 
-func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
-    print("rotate: \(q)")
+func _rotateCG(_ cgImage: CGImage, pixelSize: CGSize, quarterTurns q: Int) -> (CGImage, CGSize) {
+
     let k = ((q % 4) + 4) % 4
-    if k == 0 { return image }
+    if k == 0 { return (cgImage, pixelSize) }
     
-    let srcSize = image.pixelSize
+    let srcSize = pixelSize
     let dstSize = (k % 2 == 0) ? srcSize : NSSize(width: srcSize.height, height: srcSize.width)
-    
-    // 获取源图像的 CGImage
-    guard let cgImage = image.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
     
     // 创建目标位图上下文（精确像素尺寸）
     let width = Int(dstSize.width)
@@ -29,7 +26,7 @@ func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
         bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return image }
+    ) else { return (cgImage, pixelSize) }
     
     // 不插值
     ctx.interpolationQuality = .none
@@ -54,7 +51,14 @@ func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
     let drawRect = CGRect(x: 0, y: 0, width: srcSize.width, height: srcSize.height)
     ctx.draw(cgImage, in: drawRect)
     // 从上下文创建 CGImage
-    guard let rotatedCGImage = ctx.makeImage() else { return image }
+    guard let rotatedCGImage = ctx.makeImage() else { return (cgImage, pixelSize) }
+    return (rotatedCGImage, dstSize)
+}
+func rotate(_ image: LoadedImage, quarterTurns q: Int) -> LoadedImage {
+    print("rotate: \(q)")
+    // 获取源图像的 CGImage
+    guard let cgImage = image.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+    let (rotatedCGImage, dstSize) = _rotateCG(cgImage, pixelSize: image.pixelSize, quarterTurns: q)
     // 创建 NSImage
     let out = NSImage(cgImage: rotatedCGImage, size: dstSize)
     return LoadedImage(image: out, pixelSize: dstSize)

@@ -235,8 +235,21 @@ final class ViewerViewModel: ObservableObject {
         return CGSize(width: floor(w * s) / s,
                       height: floor(h * s) / s)
     }
-    
     func rotateCurrentImage(fitMode: FitMode, by q: Int) {
+        if undoStack.isEmpty {
+            print("rotate base image")
+            rotateBaseImage(fitMode: fitMode, by: q)
+        } else {
+            print("rotate rendered image")
+            if let img = renderedImage, let size = renderedPixelSize {
+                guard let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+                let (rotated, _) = _rotateCG(cgImage, pixelSize: size, quarterTurns: q)
+                pushUndoSnapshot()
+                commitCGImage(rotated)
+            }
+        }
+    }
+    func rotateBaseImage(fitMode: FitMode, by q: Int) {
         guard let url = currentURL, let base = baseImage else { return }
         
         let oldQ = RotationStore.shared.get(for: url)
@@ -244,11 +257,9 @@ final class ViewerViewModel: ObservableObject {
         RotationStore.shared.set(newQ, for: url)
         
         let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
-        // 旋转不参与Undo,不用applyCGImage
+        // 首次旋转不参与Undo,不用commitCGImage
         setRenderedImage(rotated)
-        // 旋转不参与Undo
-        resetHistoryForNewImage(from: rotated.image)
-        
+        //resetHistoryForNewImage(from: rotated.image)
         drive(reason: .fitToggle, mode: fitMode)
     }
     

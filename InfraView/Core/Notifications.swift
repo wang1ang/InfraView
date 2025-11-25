@@ -27,6 +27,7 @@ extension Notification.Name {
     static let infraCut = Notification.Name("InfraView.Cut")
     static let infraCrop = Notification.Name("InfraView.Crop")
     static let infraSelectAll = Notification.Name("InfraView.SelectAll")
+    static let infraSelectNone = Notification.Name("InfraView.SelectNone")
     
     // MARK: - 撤销/重做
     static let infraUndo = Notification.Name("InfraView.Undo")

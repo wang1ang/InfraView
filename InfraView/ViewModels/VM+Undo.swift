@@ -32,8 +32,12 @@ extension ViewerViewModel {
         let w = cg.width; let h = cg.height
         let size = NSSize(width: w, height: h)
         let nsImage = NSImage(cgImage: cg, size: size)
-        print("applyCGImage: \(size)")
+        print("commitCGImage: \(size)")
         setRenderedImage(LoadedImage(image: nsImage, pixelSize: size))
+        NotificationCenter.default.post(
+            name: NSNotification.Name.infraSelectNone,
+            object: nil
+        )
     }
 
 

@@ -99,9 +99,6 @@ extension ViewerViewModel {
         pushUndoSnapshot()
         DispatchQueue.main.async {
             self.commitCGImage(newCG)
-            // 清不掉
-            //self.selectionRectPx = nil
-            // 如果有别的地方依赖选区变化，这里可以发通知或调用回调
         }
         return true
     }
