@@ -76,8 +76,7 @@ struct InfraViewApp: App {
                 Divider()
                 Button("Change Canvas Size") {
                     CanvasSizePanelManager.shared.show { config in
-                        print("应用新尺寸: \(config.width)x\(config.height)")
-                        // 你的实际逻辑
+                        NotificationCenter.default.post(name: .infraCanvasSize, object: config)
                     }
                 }
                 .keyboardShortcut("V", modifiers: [.shift])

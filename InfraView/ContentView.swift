@@ -135,6 +135,12 @@ struct ContentView: View {
                   win.isKeyWindow else { return }
             viewerVM.flipCurrentImage(by: direction)
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.infraCanvasSize)) { note in
+            guard let config = note.object as? CanvasSizeConfig,
+                  let win = viewerVM.window,
+                  win.isKeyWindow else { return }
+            viewerVM.changeCanvasSize(config)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
             if let urls = note.object as? [URL] {
                 store.load(urls: urls)

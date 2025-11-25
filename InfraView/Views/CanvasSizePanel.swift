@@ -7,12 +7,15 @@
 
 import SwiftUI
 
+class AppState {
+    static var backgroundColor: Color = .black
+}
+
 // MARK: - 数据模型
 struct CanvasSizeConfig {
     var width: String = ""
     var height: String = ""
     var alignment: CanvasAlignment = .center
-    var backgroundColor: Color = .black
 }
 
 enum CanvasAlignment: String, CaseIterable, Identifiable {
@@ -68,7 +71,13 @@ struct CanvasSizePanelView: View {
     @State private var width: String = ""
     @State private var height: String = ""
     @State private var alignment: CanvasAlignment = .center
-    @State private var backgroundColor: Color = .black
+    
+    private var backgroundColor: Binding<Color> {
+        Binding(
+            get: {AppState.backgroundColor},
+            set: { AppState.backgroundColor = $0 }
+        )
+    }
     let onConfirm: (CanvasSizeConfig) -> Void
     let onCancel: () -> Void
     
@@ -128,7 +137,10 @@ struct CanvasSizePanelView: View {
                     }
                 }
                 // 背景色选择
-                ColorPickerView(title: "Background Color", selectedColor: $backgroundColor)
+                ColorPickerView(title: "Background Color", selectedColor: Binding(
+                    get: { AppState.backgroundColor },
+                    set: { AppState.backgroundColor = $0 }
+                ))
             }
             
             // 按钮
@@ -138,9 +150,8 @@ struct CanvasSizePanelView: View {
                 Button("Apply") {
                     onConfirm(CanvasSizeConfig(
                         width: width,
-                        height: height,
-                        alignment: alignment,
-                        backgroundColor: backgroundColor
+                        height: height
+                        alignment: alignment
                     ))
                 }.keyboardShortcut(.return).buttonStyle(.borderedProminent)
             }

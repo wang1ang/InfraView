@@ -64,28 +64,28 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var cropObserver: NSObjectProtocol?
         var saveObserver: NSObjectProtocol?
         
+        var clearSelectionObservers: [NSObjectProtocol] = []
+        
         var resizingEdge: Edge?
         
         init() {
-            rotateObserver = NotificationCenter.default.addObserver(
-                forName: .infraRotate,
-                object: nil,
-                queue: .main
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
-                        self.clearSelection(updateVM: true, restoreTitle: true)
+            for notification in [
+                Notification.Name.infraRotate,
+                Notification.Name.infraFlip,
+                Notification.Name.infraCanvasSize
+            ] {
+                clearSelectionObservers.append(
+                    NotificationCenter.default.addObserver(
+                        forName: notification,
+                        object: nil,
+                        queue: .main
+                    ) { [weak self] _ in
+                        Task { @MainActor [weak self] in
+                            guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
+                            self.clearSelection(updateVM: true, restoreTitle: true)
+                        }
                     }
-            }
-            flipObserver = NotificationCenter.default.addObserver(
-                forName: .infraFlip,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self, let win = viewerVM?.window, win.isKeyWindow else { return }
-                    self.clearSelection(updateVM: true, restoreTitle: true)
-                }
+                )
             }
             selectAllObserver = NotificationCenter.default.addObserver(
                 forName: .infraSelectAll,
@@ -119,8 +119,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m) }
             if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
-            if let o = rotateObserver  { NotificationCenter.default.removeObserver(o) }
-            if let o = flipObserver  { NotificationCenter.default.removeObserver(o) }
+            for notification in [
+                Notification.Name.infraRotate,
+                Notification.Name.infraFlip,
+                Notification.Name.infraCanvasSize
+            ] {
+                NotificationCenter.default.removeObserver(notification)
+            }
             if let o = selectAllObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = cropObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = saveObserver  { NotificationCenter.default.removeObserver(o) }
