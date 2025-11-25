@@ -25,7 +25,7 @@ struct Viewer: View {
                 ZStack {
                     if let err = viewerVM.loadingError {
                         Placeholder(title: "Failed to load", systemName: "exclamationmark.triangle", text: err)
-                    } else if let img = viewerVM.processedImage {
+                    } else if let img = viewerVM.renderedImage {
                         ZoomableImage(
                             image: img,
                             zoom: Binding(
@@ -63,7 +63,7 @@ struct Viewer: View {
                         }
                     }
                 }
-                .onChange(of: viewerVM.processedImage) { _, newImg in
+                .onChange(of: viewerVM.renderedImage) { _, newImg in
                     if let newImg {
                         bar.updateStatus(url: url, image: newImg, index: index, total: store.imageURLs.count)
                         bar.setZoom(percent: Int(round(viewerVM.zoom * 100)))

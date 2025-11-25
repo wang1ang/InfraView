@@ -20,7 +20,7 @@ func changeCanvasSize(originalImage: LoadedImage, config: CanvasSizeConfig) -> C
     let newSize = NSSize(width: newWidth, height: newHeight)
     
     // 计算位置偏移
-    let offset = calculateOffset(originalSize: originalSize, newSize: newSize, alignment: .center) //config.alignment)
+    let offset = calculateOffset(originalSize: originalSize, newSize: newSize, alignment: config.alignment)
     
     // 创建新的画布
     return createNewCanvas(originalImage: originalImage, newSize: newSize, offset: offset, backgroundColor: AppState.backgroundColor)

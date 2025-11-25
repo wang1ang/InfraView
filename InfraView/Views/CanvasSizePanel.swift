@@ -150,7 +150,7 @@ struct CanvasSizePanelView: View {
                 Button("Apply") {
                     onConfirm(CanvasSizeConfig(
                         width: width,
-                        height: height
+                        height: height,
                         alignment: alignment
                     ))
                 }.keyboardShortcut(.return).buttonStyle(.borderedProminent)

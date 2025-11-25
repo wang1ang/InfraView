@@ -9,10 +9,10 @@ import AppKit
 extension ViewerViewModel {
     // 每次要修改图像前调用：把当前状态推入 undo 栈
     func pushUndoSnapshot() {
-        guard let cg = currentCGImage else {
-            // 如果 currentCGImage 还没初始化，尝试用 processedImage 填一下
-            if let img = processedImage, let c = img.cgImageSafe {
-                currentCGImage = c
+        guard let cg = committedCGImage else {
+            // 如果 currentCGImage 还没初始化，尝试用 renderßedImage 填一下
+            if let img = renderedImage, let c = img.cgImageSafe {
+                committedCGImage = c
             } else { return }
             return pushUndoSnapshot()
         }
@@ -26,41 +26,41 @@ extension ViewerViewModel {
     }
 
     // 用某个 CGImage 覆盖当前图像
-    // 在baseImage和processedImage之间多加了一层currentCGImage用来特殊处理旋转。
-    func applyCGImage(_ cg: CGImage) {
-        currentCGImage = cg
+    // 在baseImage和renderedImage之间多加了一层commitedßCGImage用来特殊处理旋转。
+    func commitCGImage(_ cg: CGImage) {
+        committedCGImage = cg
         let w = cg.width; let h = cg.height
         let size = NSSize(width: w, height: h)
         let nsImage = NSImage(cgImage: cg, size: size)
         print("applyCGImage: \(size)")
-        setProcessedImage(LoadedImage(image: nsImage, pixelSize: size))
+        setRenderedImage(LoadedImage(image: nsImage, pixelSize: size))
     }
 
 
     func undo() {
         guard let last = undoStack.popLast() else { return }
-        if let cur = currentCGImage {
+        if let cur = committedCGImage {
             redoStack.append(cur)
         }
-        applyCGImage(last)
+        commitCGImage(last)
         selectionRectPx = nil
     }
 
     func redo() {
         guard let last = redoStack.popLast() else { return }
-        if let cur = currentCGImage {
+        if let cur = committedCGImage {
             undoStack.append(cur)
         }
-        applyCGImage(last)
+        commitCGImage(last)
         selectionRectPx = nil
     }
 
     // 在加载新图片时，记得重置历史
     func resetHistoryForNewImage(from image: NSImage) {
         if let cg = image.cgImageSafe {
-            currentCGImage = cg
+            committedCGImage = cg
         } else {
-            currentCGImage = nil
+            committedCGImage = nil
         }
         undoStack.removeAll()
         redoStack.removeAll()

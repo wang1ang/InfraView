@@ -10,12 +10,12 @@ final class ViewerViewModel: ObservableObject {
     // 状态
     @Published var zoom: CGFloat = 1
     @Published var imageAutoFit = false
-    @Published var processedImage: NSImage?
+    @Published var renderedImage: NSImage?
     @Published var loadingError: String?
     @Published var selectionRectPx: CGRect?
     
     // 撤销栈
-    var currentCGImage: CGImage?          // 当前图
+    var committedCGImage: CGImage?        // 当前图
     var undoStack: [CGImage] = []         // 撤销栈
     var redoStack: [CGImage] = []         // 重做栈
     let maxHistory = 5                    // 最多保留多少步
@@ -30,7 +30,7 @@ final class ViewerViewModel: ObservableObject {
 
     private var baseImage: LoadedImage?
     
-    @Published public var processedPixelSize: CGSize?
+    @Published public var renderedPixelSize: CGSize?
     public var currentURL: URL?
     public var currentFitMode: FitMode = .fitOnlyBigToWindow
     
@@ -65,8 +65,8 @@ final class ViewerViewModel: ObservableObject {
         if reason == .newImage || reason == .fitToggle {
             currentFitMode = mode
         }
-        // 没有 processedImage 直接返回
-        guard let img = processedImage else { return }
+        // 没有 renderßedImage 直接返回
+        guard let img = renderedImage else { return }
         let basePt = naturalPoint()
 
         imageAutoFit = defaultAutoFit(fitMode: currentFitMode)
@@ -125,11 +125,11 @@ final class ViewerViewModel: ObservableObject {
     }
     func naturalPoint() -> CGSize {
         let factor = getFactor()
-        return CGSize(width: (processedPixelSize?.width ?? 0) / factor, height: (processedPixelSize?.height ?? 0) / factor)
+        return CGSize(width: (renderedPixelSize?.width ?? 0) / factor, height: (renderedPixelSize?.height ?? 0) / factor)
     }
     func fitImageToWindow() {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
-        guard let img = processedImage else { return }
+        guard let img = renderedImage else { return }
         if !imageAutoFit { return }
         print("fit to screen")
         let basePt = naturalPoint()
@@ -156,15 +156,15 @@ final class ViewerViewModel: ObservableObject {
         let url = urls[index]
         currentURL = url  // used for persistent rotate
         loadingError = nil
-        setProcessedImage(nil) // 清空旧图，避免误用
+        setRenderedImage(nil) // 清空旧图，避免误用
 
         // 1) 先用缓存（同步路径）
         if let cached = cache.get(url) {
             baseImage = cached
-            processedPixelSize = cached.pixelSize
+            renderedPixelSize = cached.pixelSize
             let q = RotationStore.shared.get(for: url)
             let final = (q == 0) ? cached : rotate(cached, quarterTurns: q)
-            setProcessedImage(final)
+            setRenderedImage(final)
             resetHistoryForNewImage(from: final.image)
             drive(reason: .newImage, mode: fitMode)
         } else {
@@ -180,11 +180,11 @@ final class ViewerViewModel: ObservableObject {
                             image: NSImage(cgImage: cg, size: .zero),
                             pixelSize: px)
                         self.baseImage = img
-                        self.processedPixelSize = px
+                        self.renderedPixelSize = px
                         self.cache.set(url, img)
                         let q = RotationStore.shared.get(for: url)
                         let final = (q == 0) ? img : rotate(img, quarterTurns: q)
-                        self.setProcessedImage(final)
+                        self.setRenderedImage(final)
                         self.resetHistoryForNewImage(from: final.image)
                         self.drive(reason: .newImage, mode: fitMode)
                     } else {
@@ -245,7 +245,7 @@ final class ViewerViewModel: ObservableObject {
         
         let rotated = (newQ == 0) ? base : rotate(base, quarterTurns: newQ)
         // 旋转不参与Undo,不用applyCGImage
-        setProcessedImage(rotated)
+        setRenderedImage(rotated)
         // 旋转不参与Undo
         resetHistoryForNewImage(from: rotated.image)
         
@@ -253,8 +253,8 @@ final class ViewerViewModel: ObservableObject {
     }
     
     func flipCurrentImage(by direction: String) {
-        guard let image = processedImage,
-              let pixelSize = processedPixelSize else { return }
+        guard let image = renderedImage,
+              let pixelSize = renderedPixelSize else { return }
         let currentImage = LoadedImage(image: image, pixelSize: pixelSize)
         var flipped: CGImage?
         print(direction)
@@ -266,17 +266,16 @@ final class ViewerViewModel: ObservableObject {
         if let newImage = flipped {
             // flip 参与Undo
             pushUndoSnapshot()
-            applyCGImage(newImage)
+            commitCGImage(newImage)
         }
     }
     func changeCanvasSize(_ config: CanvasSizeConfig) {
-        guard let image = processedImage,
-              let pixelSize = processedPixelSize else { return }
+        guard let image = renderedImage,
+              let pixelSize = renderedPixelSize else { return }
         let currentImage = LoadedImage(image: image, pixelSize: pixelSize)
-
         if let newCGImage = InfraView.changeCanvasSize(originalImage: currentImage, config: config) {
             pushUndoSnapshot()
-            applyCGImage(newCGImage)
+            commitCGImage(newCGImage)
         } else {
             // 处理错误
             print("Failed to change canvas size")
@@ -286,8 +285,8 @@ final class ViewerViewModel: ObservableObject {
         selectionRectPx = rectPx
     }
 
-    func setProcessedImage(_ img: LoadedImage?) {
-        processedImage = img?.image
-        processedPixelSize = img?.pixelSize
+    func setRenderedImage(_ img: LoadedImage?) {
+        renderedImage = img?.image
+        renderedPixelSize = img?.pixelSize
     }
 }

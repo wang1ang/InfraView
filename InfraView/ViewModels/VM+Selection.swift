@@ -18,9 +18,9 @@ extension ViewerViewModel {
         return r
     }
     private var getCGImage: CGImage? {
-        if let cg = currentCGImage { return cg }
-        if let img = processedImage, let cg = img.cgImageSafe {
-            currentCGImage = cg
+        if let cg = committedCGImage { return cg }
+        if let img = renderedImage, let cg = img.cgImageSafe {
+            committedCGImage = cg
             return cg
         }
         return nil
@@ -54,7 +54,7 @@ extension ViewerViewModel {
         // 3. 撤销栈
         pushUndoSnapshot()
         DispatchQueue.main.async {
-            self.applyCGImage(cropped)
+            self.commitCGImage(cropped)
             // will be done in coordinator:
             //self.selectionRectPx = nil
         }
@@ -98,7 +98,7 @@ extension ViewerViewModel {
 
         pushUndoSnapshot()
         DispatchQueue.main.async {
-            self.applyCGImage(newCG)
+            self.commitCGImage(newCG)
             // 清不掉
             //self.selectionRectPx = nil
             // 如果有别的地方依赖选区变化，这里可以发通知或调用回调
@@ -106,7 +106,7 @@ extension ViewerViewModel {
         return true
     }
     public func colorAtPixel(x: Int, y: Int) -> NSColor? {
-        guard let image = processedImage else { return nil }
+        guard let image = renderedImage else { return nil }
         // 把 NSImage 转成 CGImage
         var rect = CGRect(origin: .zero, size: image.size)
         guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {

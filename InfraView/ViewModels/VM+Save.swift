@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 extension ViewerViewModel {
     @MainActor
     func saveCurrentImage() {
-        guard let img = processedImage else { return }
+        guard let img = renderedImage else { return }
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         
         let panel = NSSavePanel()

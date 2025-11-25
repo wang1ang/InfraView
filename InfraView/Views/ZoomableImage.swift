@@ -25,7 +25,7 @@ struct ZoomableImage: View {
     
     var body: some View {
         GeometryReader { proxy in
-            let px = viewerVM.processedPixelSize ?? .zero
+            let px = viewerVM.renderedPixelSize ?? .zero
             let naturalPt = CGSize(
                 width:  px.width / displayScale,
                 height: px.height / displayScale
@@ -47,7 +47,7 @@ struct ZoomableImage: View {
             )
 
             PanMarqueeScrollView(
-                imagePixels: viewerVM.processedPixelSize ?? imagePixels,
+                imagePixels: viewerVM.renderedPixelSize ?? imagePixels,
                 baseSize: CGSize(width: baseW, height: baseH),
                 zoom: $zoom,
                 viewerVM: viewerVM
