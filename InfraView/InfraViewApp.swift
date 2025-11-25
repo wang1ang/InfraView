@@ -64,7 +64,7 @@ struct InfraViewApp: App {
                 }.keyboardShortcut("a", modifiers: .command)
                 Button("Crop") {
                     NotificationCenter.default.post(name: .infraCrop, object: nil)
-                }
+                }.keyboardShortcut("C", modifiers: [])
             }
             CommandMenu("Image") {
                 Button("Vertical Flip") {

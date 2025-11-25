@@ -58,7 +58,10 @@ struct ContentView: View {
         .onChange(of: fitMode) { _, newValue in
             lastFitMode = newValue
         }
-        .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in next() }
+        .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in
+            guard let win = viewerVM.window, win.isKeyWindow else { return }
+            next()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
             guard let win = viewerVM.window, win.isKeyWindow else { return }

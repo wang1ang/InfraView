@@ -192,6 +192,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 zoomToCurrentSelection()
             } else {
                 clearSelection(updateVM: true, restoreTitle: false)
+                /*
+                // 没用，只能在画出选框后起作用。
+                if let mask = viewerVM?.window?.styleMask, mask.contains(.fullScreen) {
+                    print("next")
+                    NotificationCenter.default.post(name: .infraNext, object: nil)
+                }
+                */
             }
         }
         @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
@@ -280,6 +287,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         func ensureSelectionLayer(on doc: NSView) {
             selectionLayer.attachIfNeeded(to: doc)
             // 双击全屏
+            // 覆盖的这层会阻挡原来的ZoomableImage上的onTapGesture，所以需要再响应一遍事件。
             if cachedDoubleClickRecognizer == nil {
                 let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
                 dbl.numberOfClicksRequired = 2
