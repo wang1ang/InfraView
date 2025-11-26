@@ -33,7 +33,7 @@ extension PanMarqueeScrollView.Coordinator {
 
     func beganResizingEdge(_ edge: Edge, on doc: NSView) {
         resizingEdge = edge
-        ensureSelectionLayer(on: doc)
+        attachSelectionLayer(on: doc)
         // 显示当前选框状态
         
         if let rPx = viewerVM?.selectionRectPx {
@@ -184,7 +184,7 @@ extension PanMarqueeScrollView.Coordinator {
             width: imagePixels.width,
             height: imagePixels.height
         )
-        ensureSelectionLayer(on: doc)
+        attachSelectionLayer(on: doc)
         finishSelectionPx(rectPx)
     }
 }
