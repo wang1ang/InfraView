@@ -47,6 +47,11 @@ struct InfraViewApp: App {
                 }.keyboardShortcut("S", modifiers: [])
                 Toggle("Show Status Bar", isOn: $bar.isVisible)
                 .keyboardShortcut("S", modifiers: [.control])
+                Button("Full Screen") {
+                    if let win = keyWindowOrFirstVisible() {
+                        win.toggleFullScreen(nil)
+                    }
+                }.keyboardShortcut(KeyEquivalent("f"), modifiers: [])
             }
             CommandGroup(replacing: .pasteboard) {
                 Button("Cut") {
