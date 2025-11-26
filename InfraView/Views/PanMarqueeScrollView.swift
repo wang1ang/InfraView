@@ -69,6 +69,20 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var resizingEdge: Edge?
         
         init() {
+            selectionLayer.onDoubleClick = { [weak self] location in
+                self?.scrollView?.window?.toggleFullScreen(nil)
+            }
+            selectionLayer.onClick = { [weak self] location in
+                // guard let sv = scrollView, let doc = sv.documentView else { return }
+                //let pDoc = g.location(in: doc)  // overlay 坐标
+                guard let path = self?.selectionLayer.layer.path else { return }
+                let pDoc = location
+                if path.contains(pDoc) {
+                    self?.zoomToCurrentSelection()
+                } else {
+                    self?.clearSelection(updateVM: true, restoreTitle: false)
+                }
+            }
             for notification in [
                 Notification.Name.infraRotate,
                 Notification.Name.infraFlip,
@@ -117,6 +131,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
         deinit {
+            self.selectionLayer.clear()
             if let m = mouseDownMonitor { NSEvent.removeMonitor(m) }
             if let m = mouseUpMonitor   { NSEvent.removeMonitor(m) }
             if let m = mouseMoveMonitor { NSEvent.removeMonitor(m) }
@@ -184,27 +199,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
         
-        @objc func handleZoomClick(_ g: NSClickGestureRecognizer) {
-            guard let sv = scrollView, let doc = sv.documentView else { return }
-            guard let path = selectionLayer.layer.path else { return }
-            let pDoc = g.location(in: doc)  // overlay 坐标
-            if path.contains(pDoc) {
-                zoomToCurrentSelection()
-            } else {
-                clearSelection(updateVM: true, restoreTitle: false)
-                /*
-                // 没用，只能在画出选框后起作用。
-                if let mask = viewerVM?.window?.styleMask, mask.contains(.fullScreen) {
-                    print("next")
-                    NotificationCenter.default.post(name: .infraNext, object: nil)
-                }
-                */
-            }
-        }
-        @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
-            guard g.state == .ended else { return }
-            g.view?.window?.toggleFullScreen(nil)
-        }
         func restrictP(p: NSPoint) -> NSPoint {
             // 限制 p 在 image 内
             guard let m = makeMapper() else { return p }
@@ -251,7 +245,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 suppressMarquee = false
                 //NSCursor.crosshair.push()
                 selectionStartInDoc = p
-                ensureSelectionLayer(on: doc)                 // 准备 overlay
+                attachSelectionLayer(on: doc)                 // 准备 overlay
                 if let s = selectionStartInDoc {
                     drawSelectionByDoc(from: s, to: p, fireDragging: true)
                 }
@@ -284,23 +278,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
 
-        func ensureSelectionLayer(on doc: NSView) {
-            selectionLayer.attachIfNeeded(to: doc)
-            // 双击全屏
-            // 覆盖的这层会阻挡原来的ZoomableImage上的onTapGesture，所以需要再响应一遍事件。
-            if cachedDoubleClickRecognizer == nil {
-                let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
-                dbl.numberOfClicksRequired = 2
-                dbl.buttonMask = 0x1 // 左键
-                doc.addGestureRecognizer(dbl)
-                cachedDoubleClickRecognizer = dbl
-            }
-            // 单击放大选区
-            if cachedClickRecognizer == nil {
-                let click = NSClickGestureRecognizer(target: self, action: #selector(handleZoomClick(_:)))
-                doc.addGestureRecognizer(click)
-                cachedClickRecognizer = click
-            }
+        func attachSelectionLayer(on doc: NSView) {
+            selectionLayer.attach(to: doc)
         }
 
         func installMouseDownMonitor() {
@@ -541,6 +520,25 @@ extension PanMarqueeScrollView.Coordinator {
 
 final class SelectionOverlay {
     let layer = CAShapeLayer()
+    private var hostView: NSView?
+
+    // 🟢 手势识别器
+    private lazy var doubleClickRecognizer: NSClickGestureRecognizer = {
+        let dbl = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick(_:)))
+                dbl.numberOfClicksRequired = 2
+                dbl.buttonMask = 0x1
+                return dbl
+    }()
+    private lazy var clickRecognizer: NSClickGestureRecognizer = {
+        let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
+                click.numberOfClicksRequired = 1
+                click.buttonMask = 0x1
+                return click
+    }()
+
+    // 🟢 回调
+    var onDoubleClick: ((NSPoint) -> Void)?
+    var onClick: ((NSPoint) -> Void)?
 
     init() {
         layer.fillColor = nil
@@ -549,18 +547,63 @@ final class SelectionOverlay {
         layer.lineDashPattern = [4, 3]
         layer.zPosition = 1_000_000
     }
-    func attachIfNeeded(to doc: NSView) {
+    func attach(to doc: NSView) {
         doc.wantsLayer = true
-        guard let L = doc.layer else { return }
-        if layer.superlayer !== L { layer.removeFromSuperlayer(); L.addSublayer(layer) }
+        guard let hostLayer = doc.layer else { return }
+        if layer.superlayer !== hostLayer {
+            detach()
+            hostLayer.addSublayer(layer)
+            hostView = doc
+        }
+        attachGestureRecognizers(to: doc)
     }
+    func detach(_ caller: String = #function) {
+        print("detach: \(caller)")
+        // 🟢 清理手势识别器
+        detachGestureRecognizers()
+        layer.removeFromSuperlayer()
+        layer.path = nil
+        hostView = nil
+    }
+    private func attachGestureRecognizers(to doc: NSView) {
+        // 确保没有重复添加
+        detachGestureRecognizers()
+        
+        doc.addGestureRecognizer(doubleClickRecognizer)
+        doc.addGestureRecognizer(clickRecognizer)
+    }
+    
+    private func detachGestureRecognizers() {
+        doubleClickRecognizer.view?.removeGestureRecognizer(doubleClickRecognizer)
+        clickRecognizer.view?.removeGestureRecognizer(clickRecognizer)
+    }
+    
+    @objc private func handleDoubleClick(_ gesture: NSClickGestureRecognizer) {
+        print("🟠 SelectionOverlay 双击")
+        guard let doc = hostView else { return }
+        let location = gesture.location(in: doc)
+        onDoubleClick?(location)
+    }
+    
+    @objc private func handleClick(_ gesture: NSClickGestureRecognizer) {
+        print("🟣 SelectionOverlay 单击")
+        guard let doc = hostView else { return }
+        let location = gesture.location(in: doc)
+        onClick?(location)
+    }
+    
     func update(rectInDoc: CGRect?) {
-        guard let r = rectInDoc, r.width > 0, r.height > 0 else { layer.path = nil; return }
-        let path = CGMutablePath(); path.addRect(r)
+        guard let r = rectInDoc, r.width >= 0, r.height >= 0 else {
+            detach()
+            return
+        }
+        let path = CGMutablePath()
+        path.addRect(r)
         layer.path = path
     }
     func clear() {
         layer.path = nil
+        detach()
     }
 }
 
