@@ -37,6 +37,13 @@ struct ContentView: View {
                    viewerVM: viewerVM,
                    fitMode: fitMode
             )
+            // TODO: consider next image by click here
+            /*
+            .onTapGesture(count: 2) {
+                if let win = keyWindowOrFirstVisible() {
+                    win.toggleFullScreen(nil)
+                }
+            }*/
         }
         .onDeleteCommand {
             requestDelete()
@@ -241,6 +248,9 @@ struct ContentView: View {
     
     private func currentWindow() -> NSWindow? {
         viewerVM.window ?? keyWindowOrFirstVisible()
+    }
+    private var isFullScreen: Bool {
+        currentWindow()?.styleMask.contains(.fullScreen) == true
     }
 }
 

@@ -185,6 +185,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         }
         
         @objc func handleZoomClick(_ g: NSClickGestureRecognizer) {
+            print("handleZoomClick")
             guard let sv = scrollView, let doc = sv.documentView else { return }
             guard let path = selectionLayer.layer.path else { return }
             let pDoc = g.location(in: doc)  // overlay 坐标
@@ -202,7 +203,8 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
         }
         @objc func handleDoubleClick(_ g: NSClickGestureRecognizer) {
-            guard g.state == .ended else { return }
+            print("handleDoubleClick")
+            //guard g.state == .ended else { return }
             g.view?.window?.toggleFullScreen(nil)
         }
         func restrictP(p: NSPoint) -> NSPoint {
