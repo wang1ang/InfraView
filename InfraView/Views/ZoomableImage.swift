@@ -77,11 +77,6 @@ struct ZoomableImage: View {
                     }
             )
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                if let win = keyWindowOrFirstVisible() {
-                    win.toggleFullScreen(nil)
-                }
-            }
         }
         .background(Color.black)
     }

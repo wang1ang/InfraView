@@ -37,13 +37,9 @@ struct ContentView: View {
                    viewerVM: viewerVM,
                    fitMode: fitMode
             )
-            // TODO: consider next image by click here
-            /*
-            .onTapGesture(count: 2) {
-                if let win = keyWindowOrFirstVisible() {
-                    win.toggleFullScreen(nil)
-                }
-            }*/
+            .onTapGesture(count: 1) {
+                handleTapGesture()
+            }
         }
         .onDeleteCommand {
             requestDelete()
@@ -251,6 +247,31 @@ struct ContentView: View {
     }
     private var isFullScreen: Bool {
         currentWindow()?.styleMask.contains(.fullScreen) == true
+    }
+    
+    @State private var pendingTask: DispatchWorkItem?
+    private func handleTapGesture() {
+        if pendingTask != nil {
+            // 一定是双击
+            print("双击")
+            pendingTask?.cancel()
+            pendingTask = nil
+            
+            if let win = keyWindowOrFirstVisible() {
+                win.toggleFullScreen(nil)
+            }
+            return
+        }
+        let workItem = DispatchWorkItem {
+            if isFullScreen {
+                next()
+            }
+            print("单击")
+            pendingTask = nil
+        }
+        pendingTask?.cancel()
+        pendingTask = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
     }
 }
 
