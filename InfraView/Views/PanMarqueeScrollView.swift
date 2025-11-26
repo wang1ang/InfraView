@@ -51,10 +51,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var setZoom: ((CGFloat) -> Void)?
         var baseSize: CGSize = .zero
         
-        // Avoid alwasy create new click recognizers
-        var cachedClickRecognizer: NSClickGestureRecognizer?
-        var cachedDoubleClickRecognizer: NSClickGestureRecognizer?
-
         var mouseDownMonitor: Any?
         var mouseUpMonitor: Any?
         var mouseMoveMonitor: Any?

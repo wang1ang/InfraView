@@ -5,6 +5,7 @@
 //  Created by 王洋 on 26/11/2025.
 //
 
+// TODO: 双击时好时坏：能检测到两次单击，但是没有双击了。
 import SwiftUI
 
 
@@ -76,6 +77,7 @@ final class SelectionOverlay {
         guard let doc = hostView else { return }
         let location = gesture.location(in: doc)
         pendingClickWorkItem?.cancel()
+        pendingClickWorkItem = nil
         self.onDoubleClick?(location)
     }
     
@@ -86,9 +88,10 @@ final class SelectionOverlay {
         pendingClickWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             self?.onClick?(location)
+            self?.pendingClickWorkItem = nil
         }
         pendingClickWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
     }
     
     func update(rectInDoc: CGRect?) {
