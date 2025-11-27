@@ -42,6 +42,7 @@ struct ContentView: View {
             }
         }
         .onDeleteCommand {
+            print(".onDeleteCommand: 会运行到这里吗？")
             requestDelete()
         }
         .toolbar { compactToolbar }
@@ -122,9 +123,13 @@ struct ContentView: View {
             Text(url.lastPathComponent)
         }
         .onReceive(NotificationCenter.default.publisher(for: .infraDelete)) { _ in
+            print(".infraDelete")
+            // 菜单/快捷键操作
             guard viewerVM.window?.isKeyWindow == true else { return }
+            // 先尝试删除选框里内容
             let erased = viewerVM.eraseSelection()
             if !erased {
+                // 没有选框，请求删除文件
                 requestDelete()
             }
         }
@@ -234,11 +239,15 @@ struct ContentView: View {
         guard currentURL != nil else { return }
         showDeleteConfirm = true
     }
-    private func performDelete() {
+    private func performDelete(caller: String = #function) {
+        print("performDelete: \(caller)")
         guard let idx = store.selection, !store.imageURLs.isEmpty else { return }
         do {
             try store.delete(at: idx)
             store.selection = store.imageURLs.isEmpty ? nil : min(idx, store.imageURLs.count - 1)
+            // showCurrent
+            guard let idx = store.selection else { return }
+            viewerVM.show(index: idx, in: store.imageURLs, fitMode: fitMode)
         } catch { print("Delete failed:", error) }
     }
     

@@ -74,7 +74,10 @@ struct Viewer: View {
                 .onChange(of: fitMode) { _, _ in
                     guard let idx = store.selection,
                           idx < store.imageURLs.count
-                    else { return }
+                    else {
+                        print("will never get here")
+                        return
+                    }
                     viewerVM.drive(reason: .fitToggle, mode: fitMode)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in

@@ -129,7 +129,8 @@ final class ImageStore: ObservableObject {
         }
     }
 
-    func delete(at index: Int) throws {
+    func delete(at index: Int, caller: String = #function) throws {
+        print("delete: \(caller): \(index)")
         guard imageURLs.indices.contains(index) else { return }
         let url = imageURLs[index]
         var resultingURL: NSURL?
