@@ -78,7 +78,8 @@ struct Viewer: View {
                     viewerVM.drive(reason: .fitToggle, mode: fitMode)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
-                    showCurrent()
+                    //showCurrent()
+                    viewerVM.drive(reason: .newImage, mode: fitMode)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
                     // comment out to fix wrong window shape after exiting full scr

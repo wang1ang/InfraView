@@ -60,7 +60,7 @@ final class ViewerViewModel: ObservableObject {
         case .fitOnlyBigToDesktop: return false
         }
     }
-    func drive(reason: Reason, mode: FitMode) {
+    func drive(reason: Reason, mode: FitMode, caller: String = #function) {
         guard let window = self.window ?? keyWindowOrFirstVisible() else { return }
         if reason == .newImage || reason == .fitToggle {
             currentFitMode = mode
@@ -97,7 +97,7 @@ final class ViewerViewModel: ObservableObject {
             }
             break
         }
-        print("drive:", reason, currentFitMode, zoom, imageAutoFit)
+        print("drive: \(caller)", reason, currentFitMode, zoom, imageAutoFit)
         // 统一计算目标内容尺寸并调窗口
         let targetSize = desiredContentSize(for: basePt, mode: currentFitMode, window: window)
         print("targetSize:", targetSize)
@@ -149,8 +149,8 @@ final class ViewerViewModel: ObservableObject {
     }
     
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
-    func show(index: Int, in urls: [URL], fitMode: FitMode) {
-        print("show")
+    func show(index: Int, in urls: [URL], fitMode: FitMode, caller: String = #function) {
+        print("show: \(caller)")
         currentFitMode = fitMode
         guard urls.indices.contains(index) else { return }
         let url = urls[index]
