@@ -58,7 +58,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         var flipObserver: NSObjectProtocol?
         var selectAllObserver: NSObjectProtocol?
         var cropObserver: NSObjectProtocol?
-        var saveObserver: NSObjectProtocol?
         
         var clearSelectionObservers: [NSObjectProtocol] = []
         
@@ -116,15 +115,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                     self?.handleCrop()
                 }
             }
-            saveObserver = NotificationCenter.default.addObserver(
-                forName: .infraSave,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.viewerVM?.saveCurrentImage()
-                }
-            }
         }
         deinit {
             self.selectionLayer.clear()
@@ -136,7 +126,6 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
             }
             if let o = selectAllObserver  { NotificationCenter.default.removeObserver(o) }
             if let o = cropObserver  { NotificationCenter.default.removeObserver(o) }
-            if let o = saveObserver  { NotificationCenter.default.removeObserver(o) }
         }
         var lastMouseDownDocPoint: NSPoint? // 框的起点，由 mouse down 记录
         var lastMarqueeLocationInCV: NSPoint? // 判断拖动方向

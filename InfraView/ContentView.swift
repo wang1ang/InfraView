@@ -138,9 +138,9 @@ struct ContentView: View {
                 Divider(); zoomMenuContent
             }, label: { Text("\(String(bar.zoomPercent ?? 100))%") })
 
-            Button { previous() } label: { Image(systemName: "chevron.left") }
+            Button { store.previous() } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button { next() } label: { Image(systemName: "chevron.right") }
+            Button { store.next() } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: [])
             Button { requestDelete() } label: { Image(systemName: "trash") }
                 .keyboardShortcut(.delete, modifiers: [])
@@ -162,10 +162,7 @@ struct ContentView: View {
                 viewerVM.drive(reason: .zoom(newV), mode: fitMode)
         })
     }
-    
-    private func next() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel + 1) % store.imageURLs.count }
-    private func previous() { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count }
-    
+
     private func requestDelete() {
         guard currentURL != nil else { return }
         showDeleteConfirm = true
@@ -204,7 +201,7 @@ struct ContentView: View {
         }
         let workItem = DispatchWorkItem {
             if isFullScreen {
-                next()
+                store.next()
             }
             print("单击")
             pendingTask = nil

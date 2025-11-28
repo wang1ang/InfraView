@@ -29,9 +29,9 @@ class NotificationHandler: ObservableObject {
                 guard let win = viewerVM.window, win.isKeyWindow else { return }
                 switch notification.name {
                 case .infraNext:
-                    self.next(store)
+                    store.next()
                 case .infraPrev:
-                    self.previous(store)
+                    store.previous()
                 default:
                     break
                 }
@@ -117,7 +117,6 @@ class NotificationHandler: ObservableObject {
             NotificationCenter.default.publisher(for: .infraRedo),  // 这里有 redo
             NotificationCenter.default.publisher(for: .openFileBySystem)
         )
-
         editOperationPublisher
             .sink { note in
                 switch note.name {
@@ -136,10 +135,15 @@ class NotificationHandler: ObservableObject {
                 }
             }
             .store(in: &cancellables)
-    }
 
-    private func next(_ store: ImageStore) { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel + 1) % store.imageURLs.count }
-    private func previous(_ store: ImageStore) { guard let sel = store.selection, !store.imageURLs.isEmpty else { return }; store.selection = (sel - 1 + store.imageURLs.count) % store.imageURLs.count }
+        // 保存通知处理：
+        NotificationCenter.default.publisher(for: .infraSave)
+            .sink { _ in
+                guard let image = viewerVM.renderedImage else { return }
+                store.saveCurrentImage(image)
+            }
+            .store(in: &cancellables)
+    }
 
     private func onEnterFullScreen(_ win: NSWindow) {
         toolbarWasVisible = win.toolbar?.isVisible ?? true

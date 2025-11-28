@@ -137,6 +137,41 @@ final class ImageStore: ObservableObject {
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
         imageURLs.remove(at: index)
     }
+    
+    func saveCurrentImage(_ image: NSImage) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        
+        // 直接判断 selection 是否存在且有效
+        let currentFileName: String
+        if let selection = selection, imageURLs.indices.contains(selection) {
+            currentFileName = imageURLs[selection].deletingPathExtension().lastPathComponent
+        } else {
+            currentFileName = "image"
+        }
+        panel.nameFieldStringValue = currentFileName + ".png"
+        
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+        
+        guard let tiffData = image.tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmapImage.representation(using: .png, properties: [:]) else { return }
+        
+        try? pngData.write(to: url)
+        
+        // 添加到列表
+        if let selection = selection,
+           imageURLs.indices.contains(selection),
+           url.deletingLastPathComponent() == imageURLs[selection].deletingLastPathComponent() {
+            imageURLs.insert(url, at: selection + 1)
+            self.selection = selection + 1
+        }
+    }
+    func next() {
+        guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel + 1) % imageURLs.count }
+    func previous() { guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel - 1 + imageURLs.count) % imageURLs.count }
+
 }
 
 
