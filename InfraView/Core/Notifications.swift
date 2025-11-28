@@ -22,6 +22,7 @@ extension Notification.Name {
     static let infraRotate = Notification.Name("InfraView.Rotate")
     static let infraFlip = Notification.Name("InfraView.Flip")
     static let infraCanvasSize = Notification.Name("InfraView.CanvasSize")
+    static let infraBorder = Notification.Name("InfraView.Border")
     static let infraToggleStar = Notification.Name("InfraView.ToggleStar")
     static let infraCopy = Notification.Name("InfraView.Copy")
     static let infraCut = Notification.Name("InfraView.Cut")

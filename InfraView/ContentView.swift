@@ -115,6 +115,12 @@ struct ContentView: View {
                   win.isKeyWindow else { return }
             viewerVM.changeCanvasSize(config)
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.infraBorder)) { note in
+            guard let config = note.object as? MarginConfig,
+                  let win = viewerVM.window,
+                  win.isKeyWindow else { return }
+            viewerVM.addBorder(config)
+        }
     }
 
     // 工具栏绑定改到 viewerVM

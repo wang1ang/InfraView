@@ -83,8 +83,27 @@ struct InfraViewApp: App {
                     CanvasSizePanelManager.shared.show { config in
                         NotificationCenter.default.post(name: .infraCanvasSize, object: config)
                     }
-                }
-                .keyboardShortcut("V", modifiers: [.shift])
+                }.keyboardShortcut("V", modifiers: [.shift])
+                Button("Add Border") {
+                    /*
+                    MarginPanelManager.shared.show { config in
+                        NotificationCenter.default.post(name: .infraBorder, object: config)
+                    }
+                     */
+                    MarginPanelManager.shared.show(
+                        onConfirm: { config in
+                            // 处理 Apply 操作
+                            print("Applied: \(config)")
+                            NotificationCenter.default.post(name: .infraBorder, object: config)
+                        },
+                        onOK: { config in
+                            // 处理 OK 操作
+                            print("OK: \(config)")
+                            NotificationCenter.default.post(name: .infraBorder, object: config)
+                            //self.hidePanel() // 或者其他特定操作
+                        }
+                    )
+                }.keyboardShortcut("B", modifiers: [.shift])
             }
         }
     }

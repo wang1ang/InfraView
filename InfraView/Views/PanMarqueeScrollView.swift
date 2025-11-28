@@ -82,6 +82,7 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 Notification.Name.infraRotate,
                 Notification.Name.infraFlip,
                 Notification.Name.infraCanvasSize,
+                Notification.Name.infraBorder,
                 Notification.Name.infraSelectNone
             ] {
                 clearSelectionObservers.append(
