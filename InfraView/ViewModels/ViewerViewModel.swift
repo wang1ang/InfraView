@@ -148,6 +148,9 @@ final class ViewerViewModel: ObservableObject {
         }
     }
     
+    func show(index: Int, in urls: [URL]) {
+        show(index: index, in: urls, fitMode: currentFitMode)
+    }
     // 载入/切图：只负责拿图，其余交给 drive(.newImage)
     func show(index: Int, in urls: [URL], fitMode: FitMode, caller: String = #function) {
         print("show: \(caller)")

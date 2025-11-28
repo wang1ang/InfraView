@@ -70,7 +70,8 @@ struct Viewer: View {
                     }
                 }
                 .onAppear(perform: showCurrent)
-                .onChange(of: store.selection) { _, _ in showCurrent() }
+                // Moved the logic into store.next & store.previous
+                //.onChange(of: store.selection) { _, _ in showCurrent() }
                 .onChange(of: fitMode) { _, _ in
                     guard let idx = store.selection,
                           idx < store.imageURLs.count

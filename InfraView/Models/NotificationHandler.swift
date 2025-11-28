@@ -29,9 +29,9 @@ class NotificationHandler: ObservableObject {
                 guard let win = viewerVM.window, win.isKeyWindow else { return }
                 switch notification.name {
                 case .infraNext:
-                    store.next()
+                    store.next(viewerVM)
                 case .infraPrev:
-                    store.previous()
+                    store.previous(viewerVM)
                 default:
                     break
                 }

@@ -168,9 +168,16 @@ final class ImageStore: ObservableObject {
             insertAfterCurrent(url)
         }
     }
-    func next() {
-        guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel + 1) % imageURLs.count }
-    func previous() { guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel - 1 + imageURLs.count) % imageURLs.count }
+    func next(_ viewerVM: ViewerViewModel) {
+        guard let sel = selection, !imageURLs.isEmpty else { return }
+        selection = (sel + 1) % imageURLs.count
+        viewerVM.show(index: selection!, in: imageURLs)
+    }
+    func previous(_ viewerVM: ViewerViewModel) {
+        guard let sel = selection, !imageURLs.isEmpty else { return }
+        selection = (sel - 1 + imageURLs.count) % imageURLs.count
+        viewerVM.show(index: selection!, in: imageURLs)
+    }
     
     func insertAfterCurrent(_ url: URL) {
         // 查找同名文件的索引
