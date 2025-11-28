@@ -10,7 +10,7 @@ import Foundation
 /// 应用内通知名称定义
 extension Notification.Name {
     // MARK: - 文件操作
-    static let infraSave = Notification.Name("infraSave")
+    static let infraSave = Notification.Name("InfraView.Save")
     static let openFileBySystem = Notification.Name("InfraView.OpenFileBySystem")
     
     // MARK: - 导航
@@ -25,6 +25,7 @@ extension Notification.Name {
     static let infraToggleStar = Notification.Name("InfraView.ToggleStar")
     static let infraCopy = Notification.Name("InfraView.Copy")
     static let infraCut = Notification.Name("InfraView.Cut")
+    static let infraPaste = Notification.Name("InfraView.Paste")
     static let infraCrop = Notification.Name("InfraView.Crop")
     static let infraSelectAll = Notification.Name("InfraView.SelectAll")
     static let infraSelectNone = Notification.Name("InfraView.SelectNone")

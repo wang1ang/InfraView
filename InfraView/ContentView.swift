@@ -19,6 +19,7 @@ struct ContentView: View {
     
     @ObservedObject var viewerVM: ViewerViewModel
     @EnvironmentObject private var bar: StatusBarStore
+    @StateObject private var notificationHandler = NotificationHandler()
 
     @State private var showImporter = false
     @State private var showDeleteConfirm = false
@@ -58,35 +59,10 @@ struct ContentView: View {
                 fitMode = lastFitMode
                 fitModeInitialized = true
             }
+            notificationHandler.setupHandlers(store: store, viewerVM: viewerVM, fitMode: $fitMode)
         }
         .onChange(of: fitMode) { _, newValue in
             lastFitMode = newValue
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraNext)) { _ in
-            guard let win = viewerVM.window, win.isKeyWindow else { return }
-            next()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraPrev)) { _ in previous() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
-            guard let win = viewerVM.window, win.isKeyWindow else { return }
-            toolbarWasVisible = win.toolbar?.isVisible ?? true
-            win.toolbar?.isVisible = false
-            win.titleVisibility = .hidden
-            win.titlebarAppearsTransparent = true
-            if #available(macOS 11.0, *) { win.titlebarSeparatorStyle = .none }
-            
-            statusBarWasVisible = StatusBarStore.shared.isVisible
-            StatusBarStore.shared.isVisible = false
-            
-            NSCursor.setHiddenUntilMouseMoves(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-            guard let w = viewerVM.window, w.isKeyWindow else { return }
-            w.toolbar?.isVisible = toolbarWasVisible
-            w.titleVisibility = .visible
-            w.titlebarAppearsTransparent = false
-            if #available(macOS 11.0, *) { w.titlebarSeparatorStyle = .automatic }
-            StatusBarStore.shared.isVisible = statusBarWasVisible
         }
         .onDrop(of: [UTType.fileURL, .image], isTargeted: nil) { providers in
             let canHandle = providers.contains {
@@ -133,56 +109,11 @@ struct ContentView: View {
                 requestDelete()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .infraRotate)) { note in
-            let q = (note.object as? Int) ?? 0
-            //guard currentURL != nil else { return }
-            guard let win = viewerVM.window, win.isKeyWindow else { return }
-            viewerVM.rotateCurrentImage(fitMode: fitMode, by: q)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraFlip)) { note in
-            //guard currentURL != nil else { return }
-            guard let direction = note.object as? String,
-                  let win = viewerVM.window,
-                  win.isKeyWindow else { return }
-            viewerVM.flipCurrentImage(by: direction)
-        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name.infraCanvasSize)) { note in
             guard let config = note.object as? CanvasSizeConfig,
                   let win = viewerVM.window,
                   win.isKeyWindow else { return }
             viewerVM.changeCanvasSize(config)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openFileBySystem)) { note in
-            if let urls = note.object as? [URL] {
-                store.load(urls: urls)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraCopy)) { note in
-            guard viewerVM.window?.isKeyWindow == true else { return }
-            print("InfraView Copy fired")
-            
-            let copiedSelection = viewerVM.copySelectionToPasteboard()
-            if !copiedSelection {
-                // copy file
-                guard let idx = store.selection, idx < store.imageURLs.count else { return }
-                let url = store.imageURLs[idx]
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.writeObjects([url as NSURL])
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraCut)) { _ in
-            if viewerVM.copySelectionToPasteboard() {
-                viewerVM.eraseSelection()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraUndo)) { _ in
-            guard viewerVM.window?.isKeyWindow == true else { return }
-            viewerVM.undo()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .infraRedo)) { _ in
-            guard viewerVM.window?.isKeyWindow == true else { return }
-            viewerVM.redo()
         }
     }
 
