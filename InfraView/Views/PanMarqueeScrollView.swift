@@ -262,6 +262,11 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
                 break
             }
         }
+        
+        @objc func handleMiddleClick(_ g: NSClickGestureRecognizer) {
+            print("Middel click")
+            viewerVM?.drive(reason: .fitToggle, mode: viewerVM?.currentFitMode ?? .fitImageToWindow)
+        }
 
         func attachSelectionLayer(on doc: NSView) {
             selectionLayer.attach(to: doc)
@@ -379,6 +384,13 @@ struct PanMarqueeScrollView<Content: View>: NSViewRepresentable {
         // ✅ 安装“按下就触发”的手势（不会与左键拖选框冲突）
         context.coordinator.installMouseDownMonitor()
         context.coordinator.installMouseMoveMonitor()
+        
+        // ✅ 添加中键点击手势
+        let middleClick = NSClickGestureRecognizer(target: context.coordinator,
+                                                 action: #selector(Coordinator.handleMiddleClick(_:)))
+        middleClick.buttonMask = 0x4   // 中键
+        middleClick.numberOfClicksRequired = 1  // 单击
+        scrollView.contentView.addGestureRecognizer(middleClick)
         return scrollView
     }
     // 每次切图/尺寸变化都会走这里：同步更新，绝不异步
