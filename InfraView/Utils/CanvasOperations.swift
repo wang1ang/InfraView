@@ -97,3 +97,93 @@ private func createNewCanvas(originalImage: LoadedImage, newSize: NSSize, offset
     }
     return newCGImage
 }
+
+
+
+
+
+
+
+// MARK: - 边框操作函数
+func addBorderToImage(originalImage: LoadedImage, config: MarginConfig) -> CGImage? {
+    // 解析边距
+    let margins = config.numericValues()
+    
+    // 计算新尺寸
+    let originalSize = originalImage.pixelSize
+    let newWidth = originalSize.width + margins.left + margins.right
+    let newHeight = originalSize.height + margins.top + margins.bottom
+    let newSize = NSSize(width: newWidth, height: newHeight)
+    
+    // 计算位置偏移（考虑边框在内侧的情况）
+    let offset = calculateBorderOffset(originalSize: originalSize, margins: margins, putBorderInside: config.putBorderInside)
+    
+    // 创建带边框的画布
+    return createBorderedCanvas(originalImage: originalImage, newSize: newSize, offset: offset, backgroundColor: AppState.backgroundColor)
+}
+
+private func calculateBorderOffset(originalSize: NSSize, margins: (top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat), putBorderInside: Bool) -> NSPoint {
+    if putBorderInside {
+        // 边框在内侧：图片尺寸不变，在图片内部绘制边框
+        return NSPoint(x: margins.left, y: margins.bottom)
+    } else {
+        // 边框在外侧：图片位置偏移，为边框留出空间
+        return NSPoint(x: margins.left, y: margins.bottom)
+    }
+}
+
+private func createBorderedCanvas(originalImage: LoadedImage, newSize: NSSize, offset: NSPoint, backgroundColor: Color) -> CGImage? {
+    guard let cgImage = originalImage.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        return nil
+    }
+    
+    let width = Int(newSize.width)
+    let height = Int(newSize.height)
+    
+    // 创建位图上下文
+    guard let ctx = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+    
+    // 设置不插值
+    ctx.interpolationQuality = .none
+    ctx.setShouldAntialias(false)
+    
+    // 填充背景色（边框颜色）
+    let nsColor = NSColor(backgroundColor)
+    ctx.setFillColor(nsColor.cgColor)
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    
+    // 绘制原图像
+    let drawRect = CGRect(
+        x: offset.x,
+        y: offset.y,
+        width: originalImage.pixelSize.width,
+        height: originalImage.pixelSize.height
+    )
+    ctx.draw(cgImage, in: drawRect)
+    
+    // 创建新图像
+    guard let newCGImage = ctx.makeImage() else {
+        return nil
+    }
+    return newCGImage
+}
+
+// 在 MarginConfig 中添加数值转换方法
+extension MarginConfig {
+    func numericValues() -> (top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) {
+        return (CGFloat(Double(top) ?? 0),
+                CGFloat(Double(bottom) ?? 0),
+                CGFloat(Double(left) ?? 0),
+                CGFloat(Double(right) ?? 0))
+    }
+}

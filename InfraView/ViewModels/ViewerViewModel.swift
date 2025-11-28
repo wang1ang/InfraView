@@ -299,15 +299,13 @@ final class ViewerViewModel: ObservableObject {
         guard let image = renderedImage,
               let pixelSize = renderedPixelSize else { return }
         let currentImage = LoadedImage(image: image, pixelSize: pixelSize)
-        /*
-        if let newCGImage = InfraView.changeCanvasSize(originalImage: currentImage, config: config) {
+        if let newCGImage = InfraView.addBorderToImage(originalImage: currentImage, config: config) {
             pushUndoSnapshot()
             commitCGImage(newCGImage)
         } else {
             // 处理错误
             print("Failed to change canvas size")
         }
-        */
         print(config)
     }
     func setSelectionPx(rectPx: CGRect?) {
