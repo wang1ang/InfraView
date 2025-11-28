@@ -36,7 +36,7 @@ final class ViewerViewModel: ObservableObject {
     
     // 依赖注入
     private let repo: ImageRepository // 磁盘加载
-    private let cache: ImageCache // 内存缓存
+    let cache: ImageCache // 内存缓存
     private let preloader: ImagePreloader // 预加载前后图片
     private let sizer: WindowSizer // 计算窗口尺寸和fit缩放比
     

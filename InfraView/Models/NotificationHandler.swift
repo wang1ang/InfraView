@@ -141,6 +141,7 @@ class NotificationHandler: ObservableObject {
             .sink { _ in
                 guard let image = viewerVM.renderedImage else { return }
                 store.saveCurrentImage(image)
+                viewerVM.cache.reset() // reload overwritten image
             }
             .store(in: &cancellables)
     }

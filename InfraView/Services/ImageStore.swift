@@ -141,6 +141,7 @@ final class ImageStore: ObservableObject {
     func saveCurrentImage(_ image: NSImage) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
+        panel.canCreateDirectories = true
         
         // 直接判断 selection 是否存在且有效
         let currentFileName: String
@@ -164,14 +165,35 @@ final class ImageStore: ObservableObject {
         if let selection = selection,
            imageURLs.indices.contains(selection),
            url.deletingLastPathComponent() == imageURLs[selection].deletingLastPathComponent() {
-            imageURLs.insert(url, at: selection + 1)
-            self.selection = selection + 1
+            insertAfterCurrent(url)
         }
     }
     func next() {
         guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel + 1) % imageURLs.count }
     func previous() { guard let sel = selection, !imageURLs.isEmpty else { return }; selection = (sel - 1 + imageURLs.count) % imageURLs.count }
+    
+    func insertAfterCurrent(_ url: URL) {
+        // 查找同名文件的索引
+        var finalSelection = selection
+        if let existingIndex = imageURLs.firstIndex(where: { $0 == url }) {
+            imageURLs.remove(at: existingIndex)
+            if let currentSelection = finalSelection, currentSelection >= existingIndex {
+                finalSelection = currentSelection - 1
+            }
+        }
 
+        // 确定插入位置
+        if let currentSelection = finalSelection,
+           imageURLs.indices.contains(currentSelection) {
+            imageURLs.insert(url, at: currentSelection + 1)
+            finalSelection = currentSelection + 1
+        } else {
+            print("debug finalSelection: \(String(describing: finalSelection)), imageURLs.count: \(imageURLs.count)")
+            imageURLs.append(url)
+            finalSelection = imageURLs.count - 1
+        }
+        self.selection = finalSelection
+    }
 }
 
 
@@ -204,6 +226,13 @@ final class ImageCache {
     func trim(keeping set: Set<URL>) {
         order.removeAll{ !set.contains($0) }
         dict = dict.filter{ set.contains($0.key) }
+    }
+    func reset(_ u: URL? = nil) {
+        if let url = u {
+            dict.removeValue(forKey: url)
+        } else {
+            dict.removeAll()
+        }
     }
 }
 
