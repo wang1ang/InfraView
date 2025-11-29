@@ -103,98 +103,47 @@ func addBorderToImage(originalImage: LoadedImage, config: MarginConfig) -> CGIma
     let left = CGFloat(Double(config.left) ?? 0)
     let right = CGFloat(Double(config.right) ?? 0)
     
-    if config.putBorderInside {
-        return _createBorderWithNegativeInside(
-            originalImage: originalImage,
-            top: top, bottom: bottom, left: left, right: right,
-            borderColor: AppState.backgroundColor
-        )
-    } else {
-        return _createBorderWithNegativeCrop(
-            originalImage: originalImage,
-            top: top, bottom: bottom, left: left, right: right,
-            borderColor: AppState.backgroundColor
-        )
-    }
+    return config.putBorderInside
+        ? _createInsideBorder(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right)
+        : _createOutsideBorder(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right)
 }
 
-private func _createBorderWithNegativeInside(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, borderColor: Color) -> CGImage? {
+private func _createInsideBorder(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
     let originalSize = originalImage.pixelSize
     
+    // 新尺寸只包含正值边距
     let newWidth = originalSize.width + max(left, 0) + max(right, 0)
     let newHeight = originalSize.height + max(top, 0) + max(bottom, 0)
     
-    let width = Int(newWidth)
-    let height = Int(newHeight)
-    
-    guard let ctx = _createCGContext(width: width, height: height),
+    guard let ctx = _createCGContext(width: Int(newWidth), height: Int(newHeight)),
           let cgImage = _getCGImage(from: originalImage) else {
         return nil
     }
     
     _setupContext(ctx)
-    _fillBackground(ctx, width: width, height: height, color: borderColor)
+    _fillBackground(ctx, width: Int(newWidth), height: Int(newHeight), color: AppState.backgroundColor)
     
     // 绘制原图
-    let drawRect = CGRect(
+    let imageRect = CGRect(
         x: max(left, 0),
         y: max(bottom, 0),
         width: originalSize.width,
         height: originalSize.height
     )
-    ctx.draw(cgImage, in: drawRect)
+    ctx.draw(cgImage, in: imageRect)
     
-    // 绘制内侧边框
-    let nsColor = NSColor(borderColor)
-    ctx.setFillColor(nsColor.cgColor)
-    
-    if top < 0 {
-        let borderHeight = abs(top)
-        ctx.fill(CGRect(
-            x: max(left, 0),
-            y: max(bottom, 0) + originalSize.height - borderHeight,
-            width: originalSize.width,
-            height: borderHeight
-        ))
-    }
-    if bottom < 0 {
-        let borderHeight = abs(bottom)
-        ctx.fill(CGRect(
-            x: max(left, 0),
-            y: max(bottom, 0),
-            width: originalSize.width,
-            height: borderHeight
-        ))
-    }
-    if left < 0 {
-        let borderWidth = abs(left)
-        ctx.fill(CGRect(
-            x: max(left, 0),
-            y: max(bottom, 0),
-            width: borderWidth,
-            height: originalSize.height
-        ))
-    }
-    if right < 0 {
-        let borderWidth = abs(right)
-        ctx.fill(CGRect(
-            x: max(left, 0) + originalSize.width - borderWidth,
-            y: max(bottom, 0),
-            width: borderWidth,
-            height: originalSize.height
-        ))
-    }
-    
-    return ctx.makeImage()
+    // 绘制内侧边框（负值部分）
+    return _drawInsideBorders(ctx: ctx, imageRect: imageRect, top: top, bottom: bottom, left: left, right: right)
 }
 
-private func _createBorderWithNegativeCrop(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, borderColor: Color) -> CGImage? {
+private func _createOutsideBorder(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
     let originalSize = originalImage.pixelSize
     
+    // 新尺寸包含所有边距（正值扩展，负值裁剪）
     let newWidth = originalSize.width + left + right
     let newHeight = originalSize.height + top + bottom
     
-    guard newWidth > 0 && newHeight > 0,
+    guard newWidth > 0, newHeight > 0,
           let cgImage = _getCGImage(from: originalImage) else {
         return nil
     }
@@ -211,15 +160,12 @@ private func _createBorderWithNegativeCrop(originalImage: LoadedImage, top: CGFl
         return nil
     }
     
-    let width = Int(newWidth)
-    let height = Int(newHeight)
-    
-    guard let ctx = _createCGContext(width: width, height: height) else {
+    guard let ctx = _createCGContext(width: Int(newWidth), height: Int(newHeight)) else {
         return nil
     }
     
     _setupContext(ctx)
-    _fillBackground(ctx, width: width, height: height, color: borderColor)
+    _fillBackground(ctx, width: Int(newWidth), height: Int(newHeight), color: AppState.backgroundColor)
     
     // 绘制裁剪后的图片
     let drawRect = CGRect(
@@ -229,6 +175,42 @@ private func _createBorderWithNegativeCrop(originalImage: LoadedImage, top: CGFl
         height: cropRect.height
     )
     ctx.draw(croppedImage, in: drawRect)
+    
+    return ctx.makeImage()
+}
+
+private func _drawInsideBorders(ctx: CGContext, imageRect: CGRect, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
+    let nsColor = NSColor(AppState.backgroundColor)
+    ctx.setFillColor(nsColor.cgColor)
+    
+    // 定义边框类型
+    typealias BorderInfo = (value: CGFloat, isVertical: Bool, isTopOrLeft: Bool)
+    
+    let borders: [BorderInfo] = [
+        (value: top, isVertical: true, isTopOrLeft: true),     // 上边框
+        (value: bottom, isVertical: true, isTopOrLeft: false), // 下边框
+        (value: left, isVertical: false, isTopOrLeft: true),   // 左边框
+        (value: right, isVertical: false, isTopOrLeft: false)  // 右边框
+    ]
+    
+    for border in borders {
+        guard border.value < 0 else { continue }
+        
+        let borderSize = abs(border.value)
+        var rect: CGRect
+        
+        if border.isVertical {
+            // 上下边框
+            let y = border.isTopOrLeft ? imageRect.maxY - borderSize : imageRect.minY
+            rect = CGRect(x: imageRect.minX, y: y, width: imageRect.width, height: borderSize)
+        } else {
+            // 左右边框
+            let x = border.isTopOrLeft ? imageRect.minX : imageRect.maxX - borderSize
+            rect = CGRect(x: x, y: imageRect.minY, width: borderSize, height: imageRect.height)
+        }
+        
+        ctx.fill(rect)
+    }
     
     return ctx.makeImage()
 }
