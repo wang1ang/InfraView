@@ -48,6 +48,7 @@ extension ViewerViewModel {
         }
         commitCGImage(last)
         selectionRectPx = nil
+        drive(reason: .fitToggle, mode: currentFitMode)
     }
 
     func redo() {
@@ -57,6 +58,7 @@ extension ViewerViewModel {
         }
         commitCGImage(last)
         selectionRectPx = nil
+        drive(reason: .fitToggle, mode: currentFitMode)
     }
 
     // 在加载新图片时，记得重置历史
