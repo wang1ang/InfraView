@@ -104,34 +104,197 @@ private func createNewCanvas(originalImage: LoadedImage, newSize: NSSize, offset
 
 
 
+
+
+
+
+
 // MARK: - 边框操作函数
 func addBorderToImage(originalImage: LoadedImage, config: MarginConfig) -> CGImage? {
-    // 解析边距
-    let margins = config.numericValues()
+    let top = CGFloat(Double(config.top) ?? 0)
+    let bottom = CGFloat(Double(config.bottom) ?? 0)
+    let left = CGFloat(Double(config.left) ?? 0)
+    let right = CGFloat(Double(config.right) ?? 0)
     
-    // 计算新尺寸
     let originalSize = originalImage.pixelSize
-    let newWidth = originalSize.width + margins.left + margins.right
-    let newHeight = originalSize.height + margins.top + margins.bottom
-    let newSize = NSSize(width: newWidth, height: newHeight)
     
-    // 计算位置偏移（考虑边框在内侧的情况）
-    let offset = calculateBorderOffset(originalSize: originalSize, margins: margins, putBorderInside: config.putBorderInside)
-    
-    // 创建带边框的画布
-    return createBorderedCanvas(originalImage: originalImage, newSize: newSize, offset: offset, backgroundColor: AppState.backgroundColor)
-}
-
-private func calculateBorderOffset(originalSize: NSSize, margins: (top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat), putBorderInside: Bool) -> NSPoint {
-    if putBorderInside {
-        // 边框在内侧：图片尺寸不变，在图片内部绘制边框
-        return NSPoint(x: margins.left, y: margins.bottom)
+    if config.putBorderInside {
+        // 选框选中：正值=外侧边框，负值=内侧边框
+        return createBorderWithNegativeInside(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right, borderColor: AppState.backgroundColor)
     } else {
-        // 边框在外侧：图片位置偏移，为边框留出空间
-        return NSPoint(x: margins.left, y: margins.bottom)
+        // 选框未选中：正值=外侧边框，负值=裁剪
+        return createBorderWithNegativeCrop(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right, borderColor: AppState.backgroundColor)
     }
 }
 
+private func createBorderWithNegativeInside(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, borderColor: Color) -> CGImage? {
+    guard let cgImage = originalImage.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        return nil
+    }
+    
+    let originalSize = originalImage.pixelSize
+    
+    // 计算新尺寸：正值扩展，负值不扩展
+    let newWidth = originalSize.width + max(left, 0) + max(right, 0)
+    let newHeight = originalSize.height + max(top, 0) + max(bottom, 0)
+    let newSize = NSSize(width: newWidth, height: newHeight)
+    
+    let width = Int(newSize.width)
+    let height = Int(newSize.height)
+    
+    guard let ctx = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+    
+    ctx.interpolationQuality = .none
+    ctx.setShouldAntialias(false)
+    
+    // 填充背景色
+    let nsColor = NSColor(borderColor)
+    ctx.setFillColor(nsColor.cgColor)
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    
+    // 绘制原图（考虑正值偏移）
+    let drawRect = CGRect(
+        x: max(left, 0),
+        y: max(bottom, 0),
+        width: originalSize.width,
+        height: originalSize.height
+    )
+    ctx.draw(cgImage, in: drawRect)
+    
+    // 在图片上绘制负值边距的内侧边框
+    ctx.setFillColor(nsColor.cgColor)
+    
+    // 只处理负值：在图片内部绘制边框
+    if top < 0 {
+        let borderHeight = abs(top)
+        ctx.fill(CGRect(
+            x: max(left, 0),
+            y: max(bottom, 0) + originalSize.height - borderHeight,
+            width: originalSize.width,
+            height: borderHeight
+        ))
+    }
+    if bottom < 0 {
+        let borderHeight = abs(bottom)
+        ctx.fill(CGRect(
+            x: max(left, 0),
+            y: max(bottom, 0),
+            width: originalSize.width,
+            height: borderHeight
+        ))
+    }
+    if left < 0 {
+        let borderWidth = abs(left)
+        ctx.fill(CGRect(
+            x: max(left, 0),
+            y: max(bottom, 0),
+            width: borderWidth,
+            height: originalSize.height
+        ))
+    }
+    if right < 0 {
+        let borderWidth = abs(right)
+        ctx.fill(CGRect(
+            x: max(left, 0) + originalSize.width - borderWidth,
+            y: max(bottom, 0),
+            width: borderWidth,
+            height: originalSize.height
+        ))
+    }
+    
+    return ctx.makeImage()
+}
+
+private func createBorderWithNegativeCrop(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, borderColor: Color) -> CGImage? {
+    // 选框未选中：正值扩展，负值裁剪
+    let originalSize = originalImage.pixelSize
+    
+    // 计算新尺寸（正值扩展，负值裁剪）
+    let newWidth = originalSize.width + left + right
+    let newHeight = originalSize.height + top + bottom
+    
+    // 如果尺寸无效，返回nil
+    guard newWidth > 0 && newHeight > 0 else {
+        return nil
+    }
+    
+    let newSize = NSSize(width: newWidth, height: newHeight)
+    
+    // 计算裁剪后的绘制区域
+    let drawRect = CGRect(
+        x: max(-left, 0),      // 负值left表示从左边裁剪
+        y: max(-bottom, 0),    // 负值bottom表示从下边裁剪
+        width: originalSize.width + min(left, 0) + min(right, 0),  // 减去裁剪的部分
+        height: originalSize.height + min(top, 0) + min(bottom, 0)
+    )
+    
+    guard let cgImage = originalImage.image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let croppedImage = cgImage.cropping(to: drawRect) else {
+        return nil
+    }
+    
+    // 创建新的画布
+    let width = Int(newSize.width)
+    let height = Int(newHeight)
+    
+    guard let ctx = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+    
+    ctx.interpolationQuality = .none
+    ctx.setShouldAntialias(false)
+    
+    // 填充背景色
+    let nsColor = NSColor(borderColor)
+    ctx.setFillColor(nsColor.cgColor)
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    
+    // 绘制裁剪后的图片
+    let finalDrawRect = CGRect(
+        x: max(left, 0),
+        y: max(bottom, 0),
+        width: drawRect.width,
+        height: drawRect.height
+    )
+    ctx.draw(croppedImage, in: finalDrawRect)
+    
+    return ctx.makeImage()
+}
+
+private func createMixedBorder(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, borderColor: Color) -> CGImage? {
+    // 原来的逻辑：正值=外侧，负值=内侧
+    let originalSize = originalImage.pixelSize
+    
+    // 计算新尺寸（只考虑正值边距）
+    let newWidth = originalSize.width + max(left, 0) + max(right, 0)
+    let newHeight = originalSize.height + max(top, 0) + max(bottom, 0)
+    let newSize = NSSize(width: newWidth, height: newHeight)
+    
+    // 计算偏移（考虑负值边距）
+    let offsetX = max(left, 0) + min(left, 0)
+    let offsetY = max(bottom, 0) + min(bottom, 0)
+    let offset = NSPoint(x: offsetX, y: offsetY)
+    
+    return createBorderedCanvas(originalImage: originalImage, newSize: newSize, offset: offset, backgroundColor: AppState.backgroundColor)
+}
 private func createBorderedCanvas(originalImage: LoadedImage, newSize: NSSize, offset: NSPoint, backgroundColor: Color) -> CGImage? {
     guard let cgImage = originalImage.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
         return nil
@@ -176,14 +339,4 @@ private func createBorderedCanvas(originalImage: LoadedImage, newSize: NSSize, o
         return nil
     }
     return newCGImage
-}
-
-// 在 MarginConfig 中添加数值转换方法
-extension MarginConfig {
-    func numericValues() -> (top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) {
-        return (CGFloat(Double(top) ?? 0),
-                CGFloat(Double(bottom) ?? 0),
-                CGFloat(Double(left) ?? 0),
-                CGFloat(Double(right) ?? 0))
-    }
 }
