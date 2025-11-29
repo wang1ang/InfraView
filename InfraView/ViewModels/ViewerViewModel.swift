@@ -290,6 +290,7 @@ final class ViewerViewModel: ObservableObject {
         if let newCGImage = InfraView.changeCanvasSize(originalImage: currentImage, config: config) {
             pushUndoSnapshot()
             commitCGImage(newCGImage)
+            drive(reason: .fitToggle, mode: currentFitMode)
         } else {
             // 处理错误
             print("Failed to change canvas size")
@@ -302,6 +303,7 @@ final class ViewerViewModel: ObservableObject {
         if let newCGImage = InfraView.addBorderToImage(originalImage: currentImage, config: config) {
             pushUndoSnapshot()
             commitCGImage(newCGImage)
+            drive(reason: .fitToggle, mode: currentFitMode)
         } else {
             // 处理错误
             print("Failed to change canvas size")
