@@ -34,8 +34,8 @@ struct MarginPanelView: View {
                     }
                     marginField("Bottom", $config.bottom, "arrow.down")
                     Toggle("Link all margins", isOn: $linkMargins).font(.caption)
+                    Toggle("If negative values used: put the border on the inside", isOn: $config.putBorderInside).font(.caption)
                 }
-                Toggle("If negative values used: put the border on the inside", isOn: $config.putBorderInside).font(.caption)
                 ColorPickerView(title: "Border Color", selectedColor: .init(get: { AppState.backgroundColor }, set: { AppState.backgroundColor = $0 }))
             }
             
@@ -45,7 +45,7 @@ struct MarginPanelView: View {
                 Button("Clear") { config = MarginConfig(); save() }
                 Spacer()
                 Button("Cancel", action: onCancel).keyboardShortcut(.escape)
-                Button("Apply") { onConfirm(config) }.disabled(!config.isComplete)
+                //Button("Apply") { onConfirm(config) }.disabled(!config.isComplete)
                 Button("OK") { onConfirm(config); onCancel() }.keyboardShortcut(.return).buttonStyle(.borderedProminent).disabled(!config.isComplete)
             }
         }
