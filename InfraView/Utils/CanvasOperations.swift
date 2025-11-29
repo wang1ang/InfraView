@@ -96,90 +96,108 @@ private func _createNewCanvas(originalImage: LoadedImage, newSize: NSSize, offse
     return ctx.makeImage()
 }
 
-// MARK: - 边框操作函数
+// MARK: - 边框操作函数（统一版本）
 func addBorderToImage(originalImage: LoadedImage, config: MarginConfig) -> CGImage? {
     let top = CGFloat(Double(config.top) ?? 0)
     let bottom = CGFloat(Double(config.bottom) ?? 0)
     let left = CGFloat(Double(config.left) ?? 0)
     let right = CGFloat(Double(config.right) ?? 0)
     
-    return config.putBorderInside
-        ? _createInsideBorder(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right)
-        : _createOutsideBorder(originalImage: originalImage, top: top, bottom: bottom, left: left, right: right)
+    return _createBorderedImage(
+        originalImage: originalImage,
+        top: top,
+        bottom: bottom,
+        left: left,
+        right: right,
+        isInsideBorder: config.putBorderInside
+    )
 }
 
-private func _createInsideBorder(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
+private func _createBorderedImage(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, isInsideBorder: Bool) -> CGImage? {
     let originalSize = originalImage.pixelSize
     
-    // 新尺寸只包含正值边距
-    let newWidth = originalSize.width + max(left, 0) + max(right, 0)
-    let newHeight = originalSize.height + max(top, 0) + max(bottom, 0)
+    // 计算新尺寸和图像位置
+    let (newSize, imageRect, cropRect) = _calculateLayout(
+        originalSize: originalSize,
+        top: top,
+        bottom: bottom,
+        left: left,
+        right: right,
+        isInsideBorder: isInsideBorder
+    )
     
-    guard let ctx = _createCGContext(width: Int(newWidth), height: Int(newHeight)),
+    // 验证尺寸
+    guard newSize.width > 0, newSize.height > 0,
           let cgImage = _getCGImage(from: originalImage) else {
         return nil
     }
     
-    _setupContext(ctx)
-    _fillBackground(ctx, width: Int(newWidth), height: Int(newHeight), color: AppState.backgroundColor)
-    
-    // 绘制原图
-    let imageRect = CGRect(
-        x: max(left, 0),
-        y: max(bottom, 0),
-        width: originalSize.width,
-        height: originalSize.height
-    )
-    ctx.draw(cgImage, in: imageRect)
-    
-    // 绘制内侧边框（负值部分）
-    return _drawInsideBorders(ctx: ctx, imageRect: imageRect, top: top, bottom: bottom, left: left, right: right)
-}
-
-private func _createOutsideBorder(originalImage: LoadedImage, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
-    let originalSize = originalImage.pixelSize
-    
-    // 新尺寸包含所有边距（正值扩展，负值裁剪）
-    let newWidth = originalSize.width + left + right
-    let newHeight = originalSize.height + top + bottom
-    
-    guard newWidth > 0, newHeight > 0,
-          let cgImage = _getCGImage(from: originalImage) else {
-        return nil
+    // 处理图像（裁剪或直接使用）
+    let finalImage: CGImage?
+    if let cropRect = cropRect {
+        finalImage = cgImage.cropping(to: cropRect)
+    } else {
+        finalImage = cgImage
     }
     
-    // 计算裁剪区域
-    let cropRect = CGRect(
-        x: max(-left, 0),
-        y: max(-bottom, 0),
-        width: originalSize.width + min(left, 0) + min(right, 0),
-        height: originalSize.height + min(top, 0) + min(bottom, 0)
-    )
-    
-    guard let croppedImage = cgImage.cropping(to: cropRect) else {
-        return nil
-    }
-    
-    guard let ctx = _createCGContext(width: Int(newWidth), height: Int(newHeight)) else {
+    guard let imageToDraw = finalImage,
+          let ctx = _createCGContext(width: Int(newSize.width), height: Int(newSize.height)) else {
         return nil
     }
     
     _setupContext(ctx)
-    _fillBackground(ctx, width: Int(newWidth), height: Int(newHeight), color: AppState.backgroundColor)
+    _fillBackground(ctx, width: Int(newSize.width), height: Int(newSize.height), color: AppState.backgroundColor)
     
-    // 绘制裁剪后的图片
-    let drawRect = CGRect(
-        x: max(left, 0),
-        y: max(bottom, 0),
-        width: cropRect.width,
-        height: cropRect.height
-    )
-    ctx.draw(croppedImage, in: drawRect)
+    // 绘制图像
+    ctx.draw(imageToDraw, in: imageRect)
+    
+    // 如果是内侧边框模式，绘制内侧边框
+    if isInsideBorder {
+        _drawInsideBorders(ctx: ctx, imageRect: imageRect, top: top, bottom: bottom, left: left, right: right)
+    }
     
     return ctx.makeImage()
 }
 
-private func _drawInsideBorders(ctx: CGContext, imageRect: CGRect, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) -> CGImage? {
+private func _calculateLayout(originalSize: NSSize, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat, isInsideBorder: Bool) -> (newSize: NSSize, imageRect: CGRect, cropRect: CGRect?) {
+    
+    if isInsideBorder {
+        // 内侧边框模式：正值扩展画布，负值在图像内部绘制边框
+        let newWidth = originalSize.width + max(left, 0) + max(right, 0)
+        let newHeight = originalSize.height + max(top, 0) + max(bottom, 0)
+        
+        let imageRect = CGRect(
+            x: max(left, 0),
+            y: max(bottom, 0),
+            width: originalSize.width,
+            height: originalSize.height
+        )
+        
+        return (NSSize(width: newWidth, height: newHeight), imageRect, nil)
+    } else {
+        // 外侧边框模式：正值扩展画布，负值裁剪图像
+        let newWidth = originalSize.width + left + right
+        let newHeight = originalSize.height + top + bottom
+        
+        let cropRect = CGRect(
+            x: max(-left, 0),
+            y: max(-bottom, 0),
+            width: originalSize.width + min(left, 0) + min(right, 0),
+            height: originalSize.height + min(top, 0) + min(bottom, 0)
+        )
+        
+        let imageRect = CGRect(
+            x: max(left, 0),
+            y: max(bottom, 0),
+            width: cropRect.width,
+            height: cropRect.height
+        )
+        
+        return (NSSize(width: newWidth, height: newHeight), imageRect, cropRect)
+    }
+}
+
+private func _drawInsideBorders(ctx: CGContext, imageRect: CGRect, top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) {
     let nsColor = NSColor(AppState.backgroundColor)
     ctx.setFillColor(nsColor.cgColor)
     
@@ -211,6 +229,4 @@ private func _drawInsideBorders(ctx: CGContext, imageRect: CGRect, top: CGFloat,
         
         ctx.fill(rect)
     }
-    
-    return ctx.makeImage()
 }
